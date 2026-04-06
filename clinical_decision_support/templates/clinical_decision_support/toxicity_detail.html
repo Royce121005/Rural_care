@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+{% block title %}Toxicity Prediction - {{ prediction.drug_name }}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-background py-8 fade-in">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="mb-8">
+            <nav class="mb-4">
+                <a href="{% url 'clinical_decision_support:toxicity_dashboard' %}" class="text-primary hover:underline text-sm">
+                    <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
+                </a>
+            </nav>
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-foreground">Toxicity Prediction</h1>
+                    <p class="text-muted-foreground mt-1">
+                        Patient: {{ prediction.patient.username }} | Drug: {{ prediction.drug_name }}
+                        {% if prediction.drug_class %}({{ prediction.drug_class }}){% endif %}
+                    </p>
+                </div>
+                <div class="mt-4 md:mt-0 flex items-center space-x-3">
+                    <span class="px-4 py-2 rounded-lg text-lg font-semibold
+                        {% if prediction.overall_risk_level == 'low' %}bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400
+                        {% elif prediction.overall_risk_level == 'moderate' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400
+                        {% else %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400{% endif %}">
+                        {{ prediction.get_overall_risk_level_display }} Risk
+                    </span>
+                    {% if prediction.prediction_confidence %}
+                    <span class="px-3 py-1 text-sm rounded bg-accent text-muted-foreground">
+                        {{ prediction.prediction_confidence|floatformat:0 }}% confidence
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Main Content -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- High Risk Alert -->
+                {% if prediction.high_risk_toxicities %}
+                <div class="bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-bento p-6">
+                    <div class="flex items-start space-x-4">
+                        <div class="w-12 h-12 bg-red-100 dark:bg-red-800/50 rounded-full flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-red-800 dark:text-red-400">High Risk Toxicities</h3>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                {% for tox in prediction.high_risk_toxicities %}
+                                <span class="px-2 py-1 text-sm rounded bg-red-100 dark:bg-red-800/50 text-red-700 dark:text-red-300">
+                                    {{ tox.toxicity }} (Grade {{ tox.ctcae_grade }}, {{ tox.probability|floatformat:0 }}%)
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Dose Adjustment Alert -->
+                {% if prediction.dose_adjustments %}
+                <div class="bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-300 dark:border-amber-700 rounded-bento p-6">
+                    <div class="flex items-start space-x-4">
+                        <div class="w-12 h-12 bg-amber-100 dark:bg-amber-800/50 rounded-full flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-prescription-bottle-alt text-amber-600 text-xl"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-amber-800 dark:text-amber-400">Dose Adjustments Recommended</h3>
+                            <div class="mt-2 space-y-2">
+                                {% for adj in prediction.dose_adjustments %}
+                                <div class="text-sm text-amber-700 dark:text-amber-300">
+                                    {% if adj.current_dose and adj.recommended_dose %}
+                                    <span class="font-medium">{{ adj.current_dose }} → {{ adj.recommended_dose }}</span>
+                                    {% endif %}
+                                    {% if adj.reason %}<span>: {{ adj.reason }}</span>{% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Predicted Toxicities -->
+                <div class="bento-card p-6">
+                    <h2 class="text-xl font-semibold text-foreground mb-6">All Predicted Toxicities</h2>
+                    
+                    <div class="space-y-4">
+                        {% for toxicity in prediction.predicted_toxicities %}
+                        <div class="border border-border rounded-lg p-4">
+                            <div class="flex items-start justify-between mb-3">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 rounded-full flex items-center justify-center
+                                        {% if toxicity.ctcae_grade >= 3 %}bg-red-100 dark:bg-red-900/30
+                                        {% elif toxicity.ctcae_grade >= 2 %}bg-amber-100 dark:bg-amber-900/30
+                                        {% else %}bg-green-100 dark:bg-green-900/30{% endif %}">
+                                        <i class="fas fa-exclamation-circle
+                                            {% if toxicity.ctcae_grade >= 3 %}text-red-600
+                                            {% elif toxicity.ctcae_grade >= 2 %}text-amber-600
+                                            {% else %}text-green-600{% endif %}"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-semibold text-foreground">{{ toxicity.toxicity }}</h3>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-3">
+                                    <span class="px-2 py-1 text-xs rounded-full
+                                        {% if toxicity.ctcae_grade >= 4 %}bg-red-200 text-red-800 dark:bg-red-900/50 dark:text-red-300
+                                        {% elif toxicity.ctcae_grade >= 3 %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400
+                                        {% elif toxicity.ctcae_grade >= 2 %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400
+                                        {% else %}bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400{% endif %}">
+                                        CTCAE Grade {{ toxicity.ctcae_grade }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Probability Bar -->
+                            <div class="mb-3">
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-muted-foreground">Probability</span>
+                                    <span class="font-medium text-foreground">{{ toxicity.probability|floatformat:0 }}%</span>
+                                </div>
+                                <div class="h-2 bg-accent/30 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full transition-all duration-500
+                                        {% if toxicity.probability >= 60 %}bg-red-500
+                                        {% elif toxicity.probability >= 30 %}bg-amber-500
+                                        {% else %}bg-green-500{% endif %}"
+                                         style="width: {{ toxicity.probability }}%"></div>
+                                </div>
+                            </div>
+
+                            <!-- Expected Onset -->
+                            {% if toxicity.onset_days %}
+                            <div class="flex items-center space-x-2 text-sm">
+                                <i class="fas fa-clock text-muted-foreground"></i>
+                                <span class="text-muted-foreground">Expected onset: {{ toxicity.onset_days }} days</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% empty %}
+                        <div class="text-center py-8">
+                            <i class="fas fa-check-circle text-green-500 text-4xl mb-4"></i>
+                            <p class="text-muted-foreground">No significant toxicities predicted</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Patient Summary -->
+                {% if prediction.patient_summary %}
+                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-bento p-6">
+                    <div class="flex items-start space-x-3">
+                        <i class="fas fa-info-circle text-blue-500 mt-1"></i>
+                        <div>
+                            <h3 class="font-semibold text-blue-800 dark:text-blue-400 mb-2">Patient-Friendly Summary</h3>
+                            <p class="text-blue-700 dark:text-blue-300 text-sm">{{ prediction.patient_summary }}</p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Prediction Info -->
+                <div class="bento-card p-6">
+                    <h3 class="text-lg font-semibold text-foreground mb-4">Prediction Details</h3>
+                    <div class="space-y-4 text-sm">
+                        <div>
+                            <span class="text-muted-foreground">Drug</span>
+                            <p class="font-medium text-foreground">{{ prediction.drug_name }}</p>
+                        </div>
+                        {% if prediction.drug_class %}
+                        <div>
+                            <span class="text-muted-foreground">Drug Class</span>
+                            <p class="font-medium text-foreground">{{ prediction.drug_class }}</p>
+                        </div>
+                        {% endif %}
+                        <div>
+                            <span class="text-muted-foreground">Predicted At</span>
+                            <p class="font-medium text-foreground">{{ prediction.created_at|date:"M d, Y H:i" }}</p>
+                        </div>
+                        {% if prediction.treatment_plan %}
+                        <div>
+                            <span class="text-muted-foreground">Treatment Plan</span>
+                            <a href="{% url 'cancer_detection:treatment_plan_detail' prediction.treatment_plan.id %}" 
+                               class="font-medium text-primary hover:underline block">
+                                {{ prediction.treatment_plan.cancer_type }} - Stage {{ prediction.treatment_plan.cancer_stage }}
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Correlated Lab Values -->
+                {% if prediction.correlated_lab_values %}
+                <div class="bento-card p-6">
+                    <h3 class="text-lg font-semibold text-foreground mb-4">Lab Value Correlations</h3>
+                    <div class="space-y-3">
+                        {% for lab_name, lab_data in prediction.correlated_lab_values.items %}
+                        <div class="p-3 bg-accent/20 rounded-lg">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-sm font-medium text-foreground">{{ lab_name|title }}</span>
+                                <span class="text-sm 
+                                    {% if lab_data.status == 'elevated' or lab_data.status == 'low' %}text-amber-600 font-medium
+                                    {% else %}text-muted-foreground{% endif %}">
+                                    {{ lab_data.value }} {{ lab_data.unit }}
+                                </span>
+                            </div>
+                            {% if lab_data.impact %}
+                            <p class="text-xs text-muted-foreground">{{ lab_data.impact }}</p>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- CTCAE Grading Reference -->
+                <div class="bento-card p-6">
+                    <h3 class="text-lg font-semibold text-foreground mb-4">CTCAE Grading Scale</h3>
+                    <div class="space-y-2 text-xs">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-6 h-6 bg-green-100 dark:bg-green-900/30 rounded text-center leading-6 text-green-700 font-bold">1</span>
+                            <span class="text-muted-foreground">Mild; asymptomatic</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-6 h-6 bg-yellow-100 dark:bg-yellow-900/30 rounded text-center leading-6 text-yellow-700 font-bold">2</span>
+                            <span class="text-muted-foreground">Moderate; limiting ADL</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-6 h-6 bg-amber-100 dark:bg-amber-900/30 rounded text-center leading-6 text-amber-700 font-bold">3</span>
+                            <span class="text-muted-foreground">Severe; hospitalization</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-6 h-6 bg-red-100 dark:bg-red-900/30 rounded text-center leading-6 text-red-700 font-bold">4</span>
+                            <span class="text-muted-foreground">Life-threatening</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Doctor Notes -->
+                {% if prediction.doctor_notes %}
+                <div class="bento-card p-6">
+                    <h3 class="text-lg font-semibold text-foreground mb-4">Doctor Notes</h3>
+                    <p class="text-sm text-muted-foreground">{{ prediction.doctor_notes }}</p>
+                </div>
+                {% endif %}
+
+                <!-- Actions -->
+                <div class="bento-card p-6">
+                    <h3 class="text-lg font-semibold text-foreground mb-4">Actions</h3>
+                    <div class="space-y-3">
+                        <a href="{% url 'clinical_decision_support:toxicity_predict' %}?patient={{ prediction.patient.id }}" 
+                           class="w-full flex items-center justify-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+                            <i class="fas fa-redo mr-2"></i>New Prediction
+                        </a>
+                        <a href="{% url 'clinical_decision_support:symptom_monitoring_patient' prediction.patient.id %}" 
+                           class="w-full flex items-center justify-center px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary/10 transition-colors">
+                            <i class="fas fa-heartbeat mr-2"></i>Monitor Patient
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

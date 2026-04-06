@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Search Clinical Evidence — ArogyaX{% endblock %}
+
+{% block main_content %}
+<!-- Hero -->
+<div class="py-10 sm:py-14 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-5xl mx-auto">
+        <div class="bento-card bento-accent-orange p-8 sm:p-10 text-center">
+            <h1 class="text-2xl sm:text-4xl font-extrabold mb-3 flex items-center justify-center gap-3">
+                <i class="fas fa-search"></i> Search Clinical Evidence
+            </h1>
+            <p class="text-base sm:text-lg text-white/80">Explore clinical guidelines and research studies</p>
+        </div>
+    </div>
+</div>
+
+<!-- Search Form -->
+<section class="px-4 sm:px-6 lg:px-8 pb-6">
+    <div class="max-w-5xl mx-auto">
+        <div class="bento-card p-5 sm:p-8">
+            <form method="get" action="{% url 'cancer_detection:evidence_search' %}" class="space-y-5">
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <input type="text" name="q" value="{{ query }}" 
+                           class="flex-1 px-4 py-3 bg-background border-2 border-border rounded-xl focus:outline-none focus:border-orange-400 text-foreground placeholder-muted-foreground transition-colors"
+                           placeholder="Search by title, authors, PMID, or keywords..." />
+                    <button type="submit" class="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl transition-colors whitespace-nowrap">
+                        <i class="fas fa-search mr-2"></i>Search
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="flex flex-col">
+                        <label class="text-sm font-semibold mb-1.5">Evidence Type</label>
+                        <select name="type" class="px-3 py-2.5 bg-background border-2 border-border rounded-xl text-sm focus:outline-none focus:border-orange-400 transition-colors">
+                            <option value="">All Types</option>
+                            {% for source_type in source_types %}
+                                <option value="{{ source_type }}" {% if selected_type == source_type %}selected{% endif %}>
+                                    {{ source_type|title }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="flex flex-col">
+                        <label class="text-sm font-semibold mb-1.5">Evidence Strength</label>
+                        <select name="strength" class="px-3 py-2.5 bg-background border-2 border-border rounded-xl text-sm focus:outline-none focus:border-orange-400 transition-colors">
+                            <option value="">All Strengths</option>
+                            {% for strength in strength_choices %}
+                                <option value="{{ strength }}" {% if selected_strength == strength %}selected{% endif %}>
+                                    {{ strength }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="flex flex-col">
+                        <label class="text-sm font-semibold mb-1.5">Cancer Type</label>
+                        <select name="cancer" class="px-3 py-2.5 bg-background border-2 border-border rounded-xl text-sm focus:outline-none focus:border-orange-400 transition-colors">
+                            <option value="">All Cancer Types</option>
+                            <option value="breast" {% if selected_cancer == "breast" %}selected{% endif %}>Breast Cancer</option>
+                            <option value="lung" {% if selected_cancer == "lung" %}selected{% endif %}>Lung Cancer</option>
+                            <option value="colorectal" {% if selected_cancer == "colorectal" %}selected{% endif %}>Colorectal Cancer</option>
+                            <option value="prostate" {% if selected_cancer == "prostate" %}selected{% endif %}>Prostate Cancer</option>
+                        </select>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+
+<!-- Results -->
+<section class="px-4 sm:px-6 lg:px-8 pb-12 sm:pb-16">
+    <div class="max-w-5xl mx-auto">
+        {% if evidence_sources %}
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 pb-4 border-b-2 border-border">
+                <h2 class="text-2xl font-extrabold mb-2 sm:mb-0">Results</h2>
+                <span class="inline-block px-4 py-2 bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-full font-semibold text-sm">
+                    {{ total_count }} results found
+                </span>
+            </div>
+            
+            <div class="space-y-4 mb-8">
+                {% for evidence in evidence_sources %}
+                <div class="bento-card border-l-4 {% if evidence.pmid %}border-l-emerald-500{% elif 'guideline' in evidence.source_type %}border-l-blue-500{% else %}border-l-amber-500{% endif %} p-5 sm:p-6">
+                    <div class="mb-4">
+                        <span class="inline-block px-3 py-1 bg-{% if evidence.pmid %}emerald{% elif 'guideline' in evidence.source_type %}blue{% else %}amber{% endif %}-100 dark:bg-{% if evidence.pmid %}emerald{% elif 'guideline' in evidence.source_type %}blue{% else %}amber{% endif %}-900/30 text-{% if evidence.pmid %}emerald{% elif 'guideline' in evidence.source_type %}blue{% else %}amber{% endif %}-700 dark:text-{% if evidence.pmid %}emerald{% elif 'guideline' in evidence.source_type %}blue{% else %}amber{% endif %}-400 rounded-full text-xs font-semibold mb-3">
+                            {% if evidence.pmid %}
+                                <i class="fas fa-flask mr-1"></i>PubMed Study
+                            {% elif 'guideline' in evidence.source_type %}
+                                <i class="fas fa-book mr-1"></i>Clinical Guideline
+                            {% else %}
+                                <i class="fas fa-bookmark mr-1"></i>Reference
+                            {% endif %}
+                        </span>
+                        
+                        <h3 class="text-lg font-bold mb-3">{{ evidence.title }}</h3>
+                        
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm text-muted-foreground mb-3">
+                            {% if evidence.pmid %}
+                                <div><strong>PMID:</strong> {{ evidence.pmid }}</div>
+                            {% endif %}
+                            {% if evidence.authors %}
+                                <div><strong>Authors:</strong> {{ evidence.authors|truncatewords:3 }}</div>
+                            {% endif %}
+                            {% if evidence.journal_or_organization %}
+                                <div><strong>Journal:</strong> {{ evidence.journal_or_organization|truncatewords:2 }}</div>
+                            {% endif %}
+                            {% if evidence.publication_year %}
+                                <div><strong>Year:</strong> {{ evidence.publication_year }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        {% if evidence.abstract %}
+                        <p class="text-muted-foreground text-sm leading-relaxed line-clamp-2">
+                            {{ evidence.abstract|truncatewords:50 }}
+                        </p>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-border/50">
+                        <div>
+                            {% if evidence.evidence_strength == 'high' %}
+                                <span class="inline-block px-3 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-semibold">
+                                    <i class="fas fa-star mr-1"></i>HIGH STRENGTH
+                                </span>
+                            {% elif evidence.evidence_strength == 'moderate' %}
+                                <span class="inline-block px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold">
+                                    <i class="fas fa-star-half-alt mr-1"></i>MODERATE STRENGTH
+                                </span>
+                            {% else %}
+                                <span class="inline-block px-3 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full text-xs font-semibold">
+                                    <i class="fas fa-exclamation-circle mr-1"></i>LOW STRENGTH
+                                </span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <a href="{% url 'cancer_detection:evidence_source_detail' evidence.id %}" 
+                               class="inline-flex items-center justify-center px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl transition-colors text-sm font-bold">
+                                <i class="fas fa-external-link-alt mr-2"></i>View Details
+                            </a>
+                            {% if evidence.pmid %}
+                                <a href="https://pubmed.ncbi.nlm.nih.gov/{{ evidence.pmid }}" 
+                                   target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-4 py-2 bg-accent text-foreground hover:bg-accent/80 rounded-xl transition-colors text-sm font-semibold">
+                                    <i class="fas fa-external-link-alt mr-2"></i>PubMed
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            {% if page_obj.has_other_pages %}
+            <div class="flex flex-wrap justify-center gap-2 py-6">
+                {% if page_obj.has_previous %}
+                    <a href="?q={{ query }}&type={{ selected_type }}&strength={{ selected_strength }}&cancer={{ selected_cancer }}&page=1"
+                       class="px-4 py-2 bento-card hover:bg-accent/50 transition-colors font-medium text-sm">
+                        <i class="fas fa-chevron-left mr-1"></i>First
+                    </a>
+                    <a href="?q={{ query }}&type={{ selected_type }}&strength={{ selected_strength }}&cancer={{ selected_cancer }}&page={{ page_obj.previous_page_number }}"
+                       class="px-4 py-2 bento-card hover:bg-accent/50 transition-colors font-medium text-sm">
+                        <i class="fas fa-chevron-left mr-1"></i>Previous
+                    </a>
+                {% endif %}
+                
+                <span class="px-4 py-2 bg-orange-600 text-white rounded-xl font-bold text-sm">
+                    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                </span>
+                
+                {% if page_obj.has_next %}
+                    <a href="?q={{ query }}&type={{ selected_type }}&strength={{ selected_strength }}&cancer={{ selected_cancer }}&page={{ page_obj.next_page_number }}"
+                       class="px-4 py-2 bento-card hover:bg-accent/50 transition-colors font-medium text-sm">
+                        Next<i class="fas fa-chevron-right ml-1"></i>
+                    </a>
+                    <a href="?q={{ query }}&type={{ selected_type }}&strength={{ selected_strength }}&cancer={{ selected_cancer }}&page={{ page_obj.paginator.num_pages }}"
+                       class="px-4 py-2 bento-card hover:bg-accent/50 transition-colors font-medium text-sm">
+                        Last<i class="fas fa-chevron-right ml-1"></i>
+                    </a>
+                {% endif %}
+            </div>
+            {% endif %}
+        {% else %}
+            <div class="bento-card p-12 text-center space-y-4">
+                <div class="bento-icon bento-icon-orange w-16 h-16 mx-auto">
+                    <i class="fas fa-search text-2xl"></i>
+                </div>
+                <p class="text-muted-foreground text-lg">
+                    {% if query or selected_type or selected_strength or selected_cancer %}
+                        No evidence found matching your search criteria.
+                    {% else %}
+                        No evidence available. Use the search form to find clinical guidelines and research studies.
+                    {% endif %}
+                </p>
+            </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

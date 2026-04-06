@@ -1,0 +1,657 @@
+{% extends 'base.html' %}
+
+{% block title %}ArogyaX | Nearby Clinics{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    #map { height: calc(100vh - 64px); width: 100%; z-index: 0; background: #0f172a; }
+
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 10px 0 30px rgba(0,0,0,0.4);
+    }
+
+    .custom-scroll::-webkit-scrollbar { width: 4px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.1); border-radius: 10px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.2); }
+
+    .pin-base {
+      border-radius: 50%;
+      border: 2px solid #0f172a;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .pin-base:hover { transform: scale(1.25); z-index: 999 !important; }
+    
+    .pin-partner { background: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2); }
+    .pin-public  { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2); }
+    .pin-ambulance { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.25); }
+    .pin-user    {
+      background: #ef4444; border: 2px solid white;
+      animation: pulse-ring 2s infinite;
+    }
+
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    .leaflet-popup-content-wrapper {
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(4px);
+      color: #e2e8f0;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      padding: 0;
+    }
+    .leaflet-popup-tip { background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-top: none; border-left: none;}
+    .leaflet-popup-content { margin: 0; width: 260px !important; }
+    .leaflet-container a.leaflet-popup-close-button {
+      color: #64748b; top: 12px; right: 12px; font-size: 16px;
+    }
+    .leaflet-container a.leaflet-popup-close-button:hover { color: #fff; }
+
+    .list-card { transition: all 0.2s ease; }
+    .list-card:hover { background: rgba(255,255,255,0.05); }
+  </style>
+{% endblock %}
+
+{% block main_content %}
+<div class="relative" style="height: calc(100vh - 64px); overflow: hidden;">
+
+  <div class="absolute top-0 left-0 h-full w-full md:w-[400px] z-[1000] glass-panel flex flex-col transform transition-transform duration-500 -translate-x-full md:translate-x-0" id="sidebar">
+    
+    <div class="p-6 border-b border-white/5">
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2.5">
+          <div class="bento-icon bento-icon-orange w-8 h-8">
+            <i class="fa-solid fa-staff-snake text-sm"></i>
+          </div>
+          Nearby Clinics
+        </h1>
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Live</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/50 p-1 rounded-bento border border-white/5 flex gap-1 relative">
+        <button onclick="switchTab('partner')" id="tab-partner" class="flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 flex items-center justify-center gap-2 text-white bg-slate-800  border border-white/5">
+          <i class="fa-solid fa-network-wired"></i> Network
+        </button>
+        <button onclick="switchTab('public')" id="tab-public" class="flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 flex items-center justify-center gap-2 text-slate-400 hover:text-white">
+          <i class="fa-solid fa-earth-americas"></i> Public
+        </button>
+        <button onclick="switchTab('ambulance')" id="tab-ambulance" class="flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 flex items-center justify-center gap-2 text-slate-400 hover:text-white">
+          <i class="fa-solid fa-truck-medical"></i> Ambulance
+        </button>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto custom-scroll relative bg-gradient-to-b from-transparent to-slate-900/30">
+      
+      <div id="list-partner" class="p-4 space-y-3">
+        <div class="text-center py-10 text-slate-500">
+           <i class="fa-solid fa-circle-notch fa-spin text-blue-500 mb-2"></i>
+           <p class="text-xs">Loading network partners...</p>
+        </div>
+      </div>
+
+      <div id="list-public" class="p-4 space-y-3 hidden">
+        <div class="flex flex-col items-center justify-center py-10 text-slate-500 gap-3" id="public-status">
+          <i class="fa-solid fa-circle-notch fa-spin text-2xl text-amber-500"></i>
+          <span class="text-xs font-medium">Scanning satellite data...</span>
+        </div>
+      </div>
+
+      <div id="list-ambulance" class="p-4 space-y-3 hidden">
+        <!-- Emergency Call Banner -->
+        <div class="bg-red-500/10 border border-red-500/20 rounded-bento p-4 mb-2">
+          <p class="text-xs font-bold text-red-400 uppercase tracking-wider mb-3"><i class="fa-solid fa-phone-volume mr-1"></i> Emergency Helplines</p>
+          <div class="grid grid-cols-3 gap-2">
+            <a href="tel:112" class="flex flex-col items-center gap-1 bg-red-600/20 hover:bg-red-600/40 rounded-lg p-2.5 transition group">
+              <i class="fa-solid fa-phone text-red-400 group-hover:text-white text-sm"></i>
+              <span class="text-white text-xs font-bold">112</span>
+              <span class="text-[9px] text-slate-400">Emergency</span>
+            </a>
+            <a href="tel:102" class="flex flex-col items-center gap-1 bg-red-600/20 hover:bg-red-600/40 rounded-lg p-2.5 transition group">
+              <i class="fa-solid fa-truck-medical text-red-400 group-hover:text-white text-sm"></i>
+              <span class="text-white text-xs font-bold">102</span>
+              <span class="text-[9px] text-slate-400">Ambulance</span>
+            </a>
+            <a href="tel:108" class="flex flex-col items-center gap-1 bg-red-600/20 hover:bg-red-600/40 rounded-lg p-2.5 transition group">
+              <i class="fa-solid fa-kit-medical text-red-400 group-hover:text-white text-sm"></i>
+              <span class="text-white text-xs font-bold">108</span>
+              <span class="text-[9px] text-slate-400">Medical</span>
+            </a>
+          </div>
+        </div>
+        <!-- Ambulance cards will be rendered here by JS -->
+        <div id="ambulance-cards"></div>
+      </div>
+
+    </div>
+
+    <div class="p-4 border-t border-white/5 bg-slate-900/40 backdrop-blur-sm">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                <i class="fa-solid fa-location-crosshairs"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-400">Search Radius</p>
+                <p class="text-sm font-semibold text-white">5.0 Kilometers</p>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')" class="md:hidden absolute top-4 left-4 z-[1000] bg-slate-900/80 backdrop-blur text-white w-10 h-10 rounded-bento border border-white/10 shadow-lg flex items-center justify-center active:scale-95 transition">
+    <i class="fa-solid fa-bars"></i>
+  </button>
+
+  <div class="absolute bottom-8 right-4 md:right-8 z-[900] flex flex-col gap-2">
+    
+    <div class="glass-panel p-1 rounded-bento border border-white/10 shadow-2xl flex flex-col gap-1 w-12 hover:w-32 transition-all duration-300 group overflow-hidden">
+        
+        <button onclick="setLayer('dark')" id="btn-dark" class="w-full h-10 rounded-lg flex items-center gap-3 px-3 hover:bg-white/10 transition text-blue-500 bg-white/5">
+            <i class="fa-solid fa-map w-4 text-center"></i>
+            <span class="text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-white">Dark Mode</span>
+        </button>
+
+        <button onclick="setLayer('light')" id="btn-light" class="w-full h-10 rounded-lg flex items-center gap-3 px-3 hover:bg-white/10 transition text-slate-400">
+            <i class="fa-regular fa-map w-4 text-center"></i>
+            <span class="text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-white">Light Mode</span>
+        </button>
+
+        <button onclick="setLayer('satellite')" id="btn-satellite" class="w-full h-10 rounded-lg flex items-center gap-3 px-3 hover:bg-white/10 transition text-slate-400">
+            <i class="fa-solid fa-satellite w-4 text-center"></i>
+            <span class="text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-white">Satellite</span>
+        </button>
+    </div>
+
+    <button onclick="recenterMap()" class="glass-panel w-12 h-12 rounded-bento flex items-center justify-center text-white hover:text-blue-400 transition active:scale-95 border border-white/10">
+        <i class="fa-solid fa-location-arrow"></i>
+    </button>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // --- STATE & CONFIG ---
+    let map, userPos;
+    let currentLayer = null;
+    const clinics = { partner: [], public: [], ambulance: [] };
+    
+    // Map Layers Configuration
+    const layers = {
+        dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; CARTO', maxZoom: 19
+        }),
+        light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; CARTO', maxZoom: 19
+        }),
+        satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; Esri', maxZoom: 19
+        })
+    };
+
+    // Custom Icons
+    const createIcon = (type) => {
+        if (type === 'ambulance') {
+            return L.divIcon({
+                className: '',
+                iconSize: [32, 32],
+                iconAnchor: [16, 16],
+                html: '<div style="width:32px;height:32px;background:#ef4444;border-radius:50%;border:2px solid #0f172a;box-shadow:0 0 0 4px rgba(239,68,68,0.25);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-truck-medical" style="color:white;font-size:13px;"></i></div>'
+            });
+        }
+        return L.divIcon({
+            className: `pin-base pin-${type} flex items-center justify-center`,
+            iconSize: type === 'user' ? [24, 24] : [16, 16],
+            html: type === 'user' ? '<div class="w-2 h-2 bg-white rounded-full"></div>' : ''
+        });
+    };
+
+    // --- INITIALIZATION ---
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(initApp, handleGeoError, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 60000
+        });
+    } else {
+        handleGeoError({ code: 0, message: "Geolocation not supported" });
+    }
+    
+    function handleGeoError(err) {
+        console.warn("Geolocation error:", err);
+        // Default to Mumbai, India as fallback
+        initApp({ coords: { latitude: 19.0760, longitude: 72.8777 } });
+        
+        // Show a warning banner
+        const sidebar = document.getElementById('sidebar');
+        const banner = document.createElement('div');
+        banner.className = 'mx-4 mt-3 p-3 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2';
+        banner.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Location unavailable. Showing default area. Enable location for accurate results.';
+        sidebar.querySelector('.p-6').appendChild(banner);
+    }
+
+    function initApp(pos) {
+        userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+        map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lng], 14);
+        setLayer('dark');
+        
+        L.marker([userPos.lat, userPos.lng], {icon: createIcon('user')})
+          .bindPopup("<b class='text-slate-800'>Your Location</b>")
+          .addTo(map);
+
+        fetchPartnerClinics();
+        fetchPublicData();
+        generateAmbulances();
+    }
+
+    // --- FUNCTIONALITY 1: BACKEND API ---
+    function fetchPartnerClinics() {
+        fetch(`/api/nearby-clinics/?lat=${userPos.lat}&lng=${userPos.lng}`)
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(data => {
+                if (!data.clinics || data.clinics.length === 0) {
+                    clinics.partner = [];
+                    renderList('partner');
+                    return;
+                }
+
+                clinics.partner = data.clinics.map(c => ({
+                    name: c.name,
+                    address: c.address || "Address unavailable",
+                    phone: c.phone || "",
+                    lat: c.lat,
+                    lng: c.lng,
+                    distance: c.distance,
+                    source: 'partner'
+                }));
+
+                clinics.partner.forEach(c => createMarker(c, 'partner'));
+                renderList('partner');
+            })
+            .catch(err => {
+                console.error("Partner fetch failed:", err);
+                document.getElementById('list-partner').innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-10 text-slate-500 gap-3">
+                        <i class="fa-solid fa-circle-exclamation text-2xl text-red-400"></i>
+                        <span class="text-xs font-medium text-red-400">Failed to load network clinics</span>
+                        <button onclick="fetchPartnerClinics()" class="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs rounded-lg border border-white/10 transition">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> Retry
+                        </button>
+                    </div>`;
+            });
+    }
+
+    // --- FUNCTIONALITY 2: PUBLIC DATA (OVERPASS API) ---
+    function fetchPublicData() {
+        const query = `
+            [out:json][timeout:25];
+            (
+              node["amenity"="clinic"](around:5000,${userPos.lat},${userPos.lng});
+              node["amenity"="hospital"](around:5000,${userPos.lat},${userPos.lng});
+              node["amenity"="doctors"](around:5000,${userPos.lat},${userPos.lng});
+              node["healthcare"](around:5000,${userPos.lat},${userPos.lng});
+              way["amenity"="clinic"](around:5000,${userPos.lat},${userPos.lng});
+              way["amenity"="hospital"](around:5000,${userPos.lat},${userPos.lng});
+              way["amenity"="doctors"](around:5000,${userPos.lat},${userPos.lng});
+              way["healthcare"](around:5000,${userPos.lat},${userPos.lng});
+            );
+            out center;
+        `;
+        
+        // Try multiple Overpass endpoints for reliability
+        const endpoints = [
+            'https://overpass-api.de/api/interpreter',
+            'https://overpass.kumi.systems/api/interpreter'
+        ];
+        
+        let fetchAttempt = 0;
+        
+        function tryFetch() {
+            if (fetchAttempt >= endpoints.length) {
+                // All Overpass endpoints failed — try Nominatim as last resort
+                fetchNominatimFallback();
+                return;
+            }
+            
+            const url = `${endpoints[fetchAttempt]}?data=${encodeURIComponent(query)}`;
+            fetchAttempt++;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            fetch(url, { signal: controller.signal })
+                .then(res => {
+                    clearTimeout(timeoutId);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return res.json();
+                })
+                .then(data => {
+                    if (!data.elements || data.elements.length === 0) {
+                        // No results from Overpass, try Nominatim fallback
+                        fetchNominatimFallback();
+                        return;
+                    }
+                    
+                    const results = data.elements.map(el => {
+                        const lat = el.lat || (el.center && el.center.lat);
+                        const lng = el.lon || (el.center && el.center.lon);
+                        
+                        if (!lat || !lng) return null;
+                        
+                        return {
+                            name: el.tags.name || (el.tags.amenity === 'hospital' ? 'Hospital' : 'Health Facility'),
+                            address: el.tags['addr:street'] 
+                                ? `${el.tags['addr:street']}${el.tags['addr:city'] ? ', ' + el.tags['addr:city'] : ''}`
+                                : "Public Listing",
+                            phone: el.tags['phone'] || el.tags['contact:phone'] || "",
+                            lat: lat,
+                            lng: lng,
+                            distance: parseFloat(haversineDistance(userPos.lat, userPos.lng, lat, lng).toFixed(2)),
+                            source: 'public',
+                            type: el.tags.amenity || el.tags.healthcare || 'clinic'
+                        };
+                    }).filter(Boolean);
+
+                    results.sort((a, b) => a.distance - b.distance);
+                    clinics.public = results;
+                    document.getElementById('public-status').style.display = 'none';
+                    renderList('public');
+                    results.forEach(c => createMarker(c, 'public'));
+                })
+                .catch(err => {
+                    clearTimeout(timeoutId);
+                    console.warn(`Overpass attempt ${fetchAttempt} failed:`, err.message);
+                    tryFetch(); // try next endpoint
+                });
+        }
+        
+        tryFetch();
+    }
+    
+    // Nominatim fallback when Overpass fails
+    function fetchNominatimFallback() {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=hospital+OR+clinic+near&viewbox=${userPos.lng-0.05},${userPos.lat+0.05},${userPos.lng+0.05},${userPos.lat-0.05}&bounded=1&limit=20&addressdetails=1`;
+        
+        fetch(url, { headers: { 'Accept': 'application/json' } })
+            .then(res => res.json())
+            .then(data => {
+                if (!data || data.length === 0) {
+                    document.getElementById('public-status').innerHTML = `
+                        <i class="fa-solid fa-map-location-dot text-2xl text-slate-600 mb-2"></i>
+                        <span class="text-xs font-medium text-slate-500">No public clinics found in this area</span>
+                    `;
+                    return;
+                }
+                
+                const results = data.map(place => {
+                    const lat = parseFloat(place.lat);
+                    const lng = parseFloat(place.lon);
+                    return {
+                        name: place.display_name.split(',')[0],
+                        address: place.display_name.split(',').slice(1, 3).join(',').trim() || 'Public Listing',
+                        phone: "",
+                        lat: lat,
+                        lng: lng,
+                        distance: parseFloat(haversineDistance(userPos.lat, userPos.lng, lat, lng).toFixed(2)),
+                        source: 'public',
+                        type: place.type || 'clinic'
+                    };
+                });
+                
+                results.sort((a, b) => a.distance - b.distance);
+                clinics.public = results;
+                document.getElementById('public-status').style.display = 'none';
+                renderList('public');
+                results.forEach(c => createMarker(c, 'public'));
+            })
+            .catch(err => {
+                console.error("Nominatim fallback also failed:", err);
+                document.getElementById('public-status').innerHTML = `
+                    <i class="fa-solid fa-circle-exclamation text-2xl text-red-400 mb-2"></i>
+                    <span class="text-xs font-medium text-red-400">Unable to load public data. Check your connection.</span>
+                    <button onclick="fetchPublicData()" class="mt-3 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs rounded-lg border border-white/10 transition">
+                        <i class="fa-solid fa-rotate-right mr-1"></i> Retry
+                    </button>
+                `;
+            });
+    }
+
+    // --- UI BUILDERS & HELPERS ---
+
+    // --- FUNCTIONALITY 3: AMBULANCE (SIMULATED) ---
+    function generateAmbulances() {
+        const names = [
+            'City Ambulance Service', 'Red Cross Emergency Unit',
+            'GovAid Ambulance 01', 'LifeLine EMS', 'RapidCare Ambulance',
+            'District Emergency Vehicle', 'MediRush Unit 4'
+        ];
+        const statuses = ['Available', 'Available', 'Available', 'On Call', 'Returning'];
+
+        // Scatter ambulance icons randomly within ~3km of user
+        const generated = names.map((name, i) => {
+            const angle = (i / names.length) * 2 * Math.PI;
+            const radius = (0.4 + Math.random() * 2.6) / 111; // ~0.4–3 km in degrees
+            const lat = userPos.lat + radius * Math.cos(angle);
+            const lng = userPos.lng + radius * Math.sin(angle);
+            const dist = parseFloat(haversineDistance(userPos.lat, userPos.lng, lat, lng).toFixed(2));
+            const status = statuses[i % statuses.length];
+            return { name, lat, lng, distance: dist, status, source: 'ambulance' };
+        });
+
+        generated.sort((a, b) => a.distance - b.distance);
+        clinics.ambulance = generated;
+        generated.forEach(a => createMarker(a, 'ambulance'));
+        renderAmbulanceList();
+    }
+
+    function renderAmbulanceList() {
+        const container = document.getElementById('ambulance-cards');
+        container.innerHTML = '';
+
+        const header = document.createElement('div');
+        header.className = 'text-xs text-slate-500 font-medium px-1 mb-2 flex items-center justify-between';
+        header.innerHTML = `<span>${clinics.ambulance.length} units nearby</span><span class="text-slate-600">Simulated positions</span>`;
+        container.appendChild(header);
+
+        clinics.ambulance.forEach(a => {
+            const card = document.createElement('div');
+            const isAvailable = a.status === 'Available';
+            card.className = 'list-card bg-slate-800/50 backdrop-blur p-4 rounded-bento border border-white/5 hover:shadow-[0_0_15px_rgba(239,68,68,0.25)] hover:border-red-500/40 cursor-pointer group';
+            card.innerHTML = `
+                <div class="flex justify-between items-start gap-3">
+                    <div class="mt-1 text-red-400">
+                        <i class="fa-solid fa-truck-medical"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h4 class="font-semibold text-sm text-slate-200 group-hover:text-white transition-colors">${a.name}</h4>
+                        <div class="flex items-center gap-1.5 mt-1">
+                            <span class="w-1.5 h-1.5 rounded-full ${isAvailable ? 'bg-emerald-400' : 'bg-yellow-400'}"></span>
+                            <span class="text-xs ${isAvailable ? 'text-emerald-400' : 'text-yellow-400'} font-medium">${a.status}</span>
+                        </div>
+                    </div>
+                    <div class="flex-shrink-0">
+                        <span class="group-hover:bg-red-500/10 text-red-400 transition-colors text-[10px] font-bold px-2 py-1 rounded-md font-mono">${a.distance}km</span>
+                    </div>
+                </div>
+            `;
+            card.addEventListener('click', () => {
+                map.flyTo([a.lat, a.lng], 16, { duration: 1.5 });
+                if (a.markerRef) setTimeout(() => a.markerRef.openPopup(), 1500);
+            });
+            container.appendChild(card);
+        });
+    }
+    
+    function setLayer(layerName) {
+        ['dark', 'light', 'satellite'].forEach(l => {
+            const btn = document.getElementById(`btn-${l}`);
+            if(l === layerName) {
+                btn.classList.add('text-blue-500', 'bg-white/5');
+                btn.classList.remove('text-slate-400');
+            } else {
+                btn.classList.remove('text-blue-500', 'bg-white/5');
+                btn.classList.add('text-slate-400');
+            }
+        });
+
+        if (currentLayer) map.removeLayer(currentLayer);
+        currentLayer = layers[layerName];
+        map.addLayer(currentLayer);
+    }
+
+    function recenterMap() {
+        if(userPos) map.flyTo([userPos.lat, userPos.lng], 15, { duration: 1.5 });
+    }
+
+    function createMarker(c, type) {
+        const marker = L.marker([c.lat, c.lng], { icon: createIcon(type) }).addTo(map);
+        const dirLink = `https://www.google.com/maps/dir/?api=1&origin=${userPos.lat},${userPos.lng}&destination=${c.lat},${c.lng}`;
+
+        let popupContent;
+        if (type === 'ambulance') {
+            const isAvailable = c.status === 'Available';
+            popupContent = `
+                <div class="p-4 font-sans">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-[10px] uppercase font-bold tracking-wider text-red-400 border border-red-800 px-2 py-0.5 rounded-full">Ambulance</span>
+                        <i class="fa-solid fa-truck-medical text-red-400"></i>
+                    </div>
+                    <h3 class="font-bold text-base text-white leading-tight mb-1">${c.name}</h3>
+                    <div class="flex items-center gap-1.5 mb-4">
+                        <span class="w-2 h-2 rounded-full ${isAvailable ? 'bg-emerald-400' : 'bg-yellow-400'}"></span>
+                        <span class="text-xs ${isAvailable ? 'text-emerald-400' : 'text-yellow-400'} font-semibold">${c.status}</span>
+                        <span class="text-slate-500 text-xs ml-auto">${c.distance} km away</span>
+                    </div>
+                    <a href="tel:102" class="block w-full text-center bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2.5 rounded-lg shadow-lg transition-transform active:scale-95">
+                        <i class="fa-solid fa-phone mr-1"></i> Call 102 (Ambulance)
+                    </a>
+                </div>`;
+        } else {
+            const accentColor = type === 'partner' ? 'text-blue-500' : 'text-amber-500';
+            const btnColor = type === 'partner' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-600 hover:bg-amber-500';
+            popupContent = `
+                <div class="p-4 font-sans">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-[10px] uppercase font-bold tracking-wider text-slate-500 border border-slate-700 px-2 py-0.5 rounded-full">${type === 'partner' ? 'Network' : 'Public'}</span>
+                        <i class="fa-solid fa-location-dot ${accentColor}"></i>
+                    </div>
+                    <h3 class="font-bold text-base text-white leading-tight mb-1">${c.name}</h3>
+                    <p class="text-xs text-slate-400 mb-4">${c.address}</p>
+                    <a href="${dirLink}" target="_blank" class="block w-full text-center ${btnColor} text-white text-xs font-bold py-2.5 rounded-lg shadow-lg transition-transform active:scale-95">
+                      Navigate Now
+                    </a>
+                </div>`;
+        }
+
+        marker.bindPopup(popupContent);
+        c.markerRef = marker;
+    }
+
+    function renderList(type) {
+        const container = document.getElementById(`list-${type}`);
+        container.innerHTML = "";
+        
+        const data = clinics[type];
+        
+        if(data.length === 0) {
+             const emptyIcon = type === 'partner' ? 'fa-network-wired' : 'fa-earth-americas';
+             container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-10 text-slate-500 gap-3">
+                    <i class="fa-solid ${emptyIcon} text-3xl text-slate-600"></i>
+                    <span class="text-sm font-medium">No ${type === 'partner' ? 'network' : 'public'} clinics found nearby</span>
+                    <span class="text-xs text-slate-600">Try expanding your search area or moving the map</span>
+                </div>`;
+             return;
+        }
+
+        // Show count header
+        const header = document.createElement('div');
+        header.className = 'text-xs text-slate-500 font-medium px-1 mb-2 flex items-center justify-between';
+        header.innerHTML = `<span>${data.length} ${type === 'partner' ? 'network partners' : 'public facilities'} found</span><span class="text-slate-600">Sorted by distance</span>`;
+        container.appendChild(header);
+
+        data.forEach(c => {
+            const card = document.createElement('div');
+            const glowClass = type === 'partner' ? 'hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] hover:border-blue-500/50' : 'hover:shadow-[0_0_15px_rgba(245,158,11,0.3)] hover:border-amber-500/50';
+            const iconClass = type === 'partner' ? 'text-blue-500' : 'text-amber-500';
+            const bgHover = type === 'partner' ? 'group-hover:bg-blue-500/10' : 'group-hover:bg-amber-500/10';
+
+            card.className = `list-card bg-slate-800/50 backdrop-blur p-4 rounded-bento border border-white/5 ${glowClass} cursor-pointer group`;
+            
+            let phoneHtml = '';
+            if (c.phone) {
+                phoneHtml = `<p class="text-xs text-slate-400 mt-1 flex items-center gap-1"><i class="fa-solid fa-phone text-[10px]"></i> ${c.phone}</p>`;
+            }
+            
+            card.innerHTML = `
+                <div class="flex justify-between items-start gap-3">
+                    <div class="mt-1 ${iconClass}">
+                        <i class="fa-solid ${type === 'partner' ? 'fa-star' : 'fa-building'}"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h4 class="font-semibold text-sm text-slate-200 group-hover:text-white transition-colors">${c.name}</h4>
+                        <p class="text-xs text-slate-500 mt-1 truncate">${c.address}</p>
+                        ${phoneHtml}
+                    </div>
+                    <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                        <span class="${bgHover} ${iconClass} transition-colors text-[10px] font-bold px-2 py-1 rounded-md font-mono">${c.distance}km</span>
+                    </div>
+                </div>
+            `;
+            
+            card.addEventListener('click', () => {
+                map.flyTo([c.lat, c.lng], 16, { duration: 1.5 });
+                if(c.markerRef) {
+                    setTimeout(() => c.markerRef.openPopup(), 1500); 
+                }
+            });
+
+            container.appendChild(card);
+        });
+    }
+
+    function switchTab(tab) {
+        ['partner', 'public', 'ambulance'].forEach(t => {
+            const btn = document.getElementById(`tab-${t}`);
+            btn.className = "flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 flex items-center justify-center gap-2 text-slate-400 hover:text-white";
+            document.getElementById(`list-${t}`).classList.add('hidden');
+        });
+
+        const activeBtn = document.getElementById(`tab-${tab}`);
+        activeBtn.className = "flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 flex items-center justify-center gap-2 text-white bg-slate-800 border border-white/5 shadow-lg";
+        document.getElementById(`list-${tab}`).classList.remove('hidden');
+    }
+
+    // Distance Helper (Haversine Formula)
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; 
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+</script>
+{% endblock %}

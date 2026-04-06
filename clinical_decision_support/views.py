@@ -1,0 +1,1301 @@
+"""
+Clinical Decision Support Views
+Doctor-only views for AI confidence, XAI, tumor board, and toxicity prediction
+"""
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.http import JsonResponse, HttpResponseForbidden
+from django.views.decorators.http import require_http_methods, require_POST
+from django.core.paginator import Paginator
+from django.utils import timezone
+from django.db.models import Q, Max, Count
+import json
+
+from .models import (
+    AIConfidenceMetadata, XAIExplanation, TumorBoardSession,
+    TumorBoardMember, TumorBoardAuditLog, ToxicityPrediction,
+    DoctorSymptomMonitor
+)
+from .ai_services import AIConfidenceGenerator, XAIExplanationGenerator
+from .toxicity_service import ToxicityPredictor
+from cancer_detection.models import (
+    PersonalizedTreatmentPlan, CancerImageAnalysis,
+    HistopathologyReport, GenomicProfile
+)
+from patient_portal.models import PatientSymptomLog, PatientAlert
+from patient_portal.consultation_models import Consultation
+from authentication.models import User, DoctorProfile
+from datetime import timedelta
+
+
+def doctor_required(view_func):
+    """Decorator to ensure only doctors can access the view"""
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect('login')
+        if request.user.user_type != 'doctor':
+            messages.error(request, 'This feature is only available to doctors.')
+            return redirect('patient_dashboard')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+# ============================================================================
+# AI Confidence Dashboard Views
+# ============================================================================
+
+@login_required
+@doctor_required
+def ai_confidence_dashboard(request):
+    """Main AI Confidence Dashboard for doctors"""
+    # Get all confidence records for filtering
+    confidence_records = AIConfidenceMetadata.objects.select_related('patient').order_by('-created_at')
+    
+    # Filter by patient if provided
+    patient_id = request.GET.get('patient')
+    if patient_id:
+        confidence_records = confidence_records.filter(patient_id=patient_id)
+    
+    # Filter by analysis type
+    analysis_type = request.GET.get('type')
+    if analysis_type:
+        confidence_records = confidence_records.filter(analysis_type=analysis_type)
+    
+    # Filter by confidence level
+    confidence_level = request.GET.get('level')
+    if confidence_level:
+        confidence_records = confidence_records.filter(confidence_level=confidence_level)
+    
+    # Pagination
+    paginator = Paginator(confidence_records, 10)
+    page = request.GET.get('page')
+    page_obj = paginator.get_page(page)
+    
+    # Get patients for filter dropdown
+    patients = User.objects.filter(user_type='patient').order_by('username')
+    
+    context = {
+        'page_obj': page_obj,
+        'patients': patients,
+        'analysis_types': AIConfidenceMetadata.ANALYSIS_TYPE_CHOICES,
+        'confidence_levels': AIConfidenceMetadata.CONFIDENCE_LEVEL_CHOICES,
+        'selected_patient': patient_id,
+        'selected_type': analysis_type,
+        'selected_level': confidence_level,
+    }
+    return render(request, 'clinical_decision_support/ai_confidence_dashboard.html', context)
+
+
+@login_required
+@doctor_required
+def ai_confidence_detail(request, confidence_id):
+    """Detailed AI Confidence view"""
+    confidence = get_object_or_404(AIConfidenceMetadata, id=confidence_id)
+    
+    context = {
+        'confidence': confidence,
+    }
+    return render(request, 'clinical_decision_support/ai_confidence_detail.html', context)
+
+
+@login_required
+@doctor_required
+def generate_confidence_for_plan(request, plan_id):
+    """Generate AI confidence metadata for a treatment plan"""
+    plan = get_object_or_404(PersonalizedTreatmentPlan, id=plan_id)
+    
+    # Gather data sources
+    data_sources = {
+        'imaging_analysis': plan.analysis is not None,
+        'pathology_report': HistopathologyReport.objects.filter(patient=plan.patient).exists(),
+        'genomic_data': GenomicProfile.objects.filter(patient=plan.patient).exists(),
+        'patient_history': True,  # Assume patient profile exists
+    }
+    
+    # Add detection confidence if available
+    if plan.analysis:
+        data_sources['detection_confidence'] = plan.analysis.detection_confidence
+        data_sources['imaging_stage'] = plan.analysis.tumor_stage
+    
+    # Get histopathology stage if available
+    histo = HistopathologyReport.objects.filter(patient=plan.patient).first()
+    if histo:
+        data_sources['pathology_stage'] = histo.stage
+    
+    # Generate confidence
+    generator = AIConfidenceGenerator()
+    confidence_data = generator.calculate_confidence(
+        analysis_type='treatment_plan',
+        data_sources=data_sources,
+        ocr_quality=histo.analysis_confidence if histo else None
+    )
+    
+    # Create or update confidence record
+    confidence, created = AIConfidenceMetadata.objects.update_or_create(
+        source_id=plan.id,
+        analysis_type='treatment_plan',
+        defaults={
+            'patient': plan.patient,
+            'overall_confidence': confidence_data['overall_confidence'],
+            'data_quality_score': confidence_data['data_quality_score'],
+            'model_certainty_score': confidence_data['model_certainty_score'],
+            'evidence_strength_score': confidence_data['evidence_strength_score'],
+            'confidence_level': confidence_data['confidence_level'],
+            'uncertainty_reasons': confidence_data['uncertainty_reasons'],
+            'missing_data_sources': confidence_data['missing_data_sources'],
+            'conflicting_outputs': confidence_data['conflicting_outputs'],
+            'ocr_quality_score': confidence_data['ocr_quality_score'],
+            'evidence_breakdown': confidence_data['evidence_breakdown'],
+            'detailed_explanation': confidence_data['detailed_explanation'],
+            'patient_explanation': confidence_data['patient_explanation'],
+        }
+    )
+    
+    messages.success(request, 'AI Confidence analysis generated successfully.')
+    return redirect('clinical_decision_support:ai_confidence_detail', confidence_id=confidence.id)
+
+
+# ============================================================================
+# XAI Dashboard Views
+# ============================================================================
+
+@login_required
+@doctor_required
+def xai_dashboard(request):
+    """Explainable AI Dashboard for doctors"""
+    xai_records = XAIExplanation.objects.select_related(
+        'treatment_plan', 'patient'
+    ).order_by('-created_at')
+    
+    # Filter by patient
+    patient_id = request.GET.get('patient')
+    if patient_id:
+        xai_records = xai_records.filter(patient_id=patient_id)
+    
+    # Pagination
+    paginator = Paginator(xai_records, 10)
+    page = request.GET.get('page')
+    page_obj = paginator.get_page(page)
+    
+    patients = User.objects.filter(user_type='patient').order_by('username')
+    
+    context = {
+        'page_obj': page_obj,
+        'patients': patients,
+        'selected_patient': patient_id,
+    }
+    return render(request, 'clinical_decision_support/xai_dashboard.html', context)
+
+
+@login_required
+@doctor_required
+def xai_detail(request, xai_id):
+    """Detailed XAI Explanation view"""
+    xai = get_object_or_404(XAIExplanation, id=xai_id)
+    
+    context = {
+        'xai': xai,
+    }
+    return render(request, 'clinical_decision_support/xai_detail.html', context)
+
+
+@login_required
+@doctor_required
+def generate_xai_for_plan(request, plan_id):
+    """Generate XAI explanation for a treatment plan"""
+    plan = get_object_or_404(PersonalizedTreatmentPlan, id=plan_id)
+    
+    # Gather data
+    tumor_data = plan.tumor_analysis or {}
+    tumor_data['stage'] = plan.cancer_stage
+    
+    genomic = GenomicProfile.objects.filter(patient=plan.patient).first()
+    genomic_data = genomic.analysis_results if genomic else {}
+    if genomic:
+        genomic_data['mutations'] = genomic.mutations
+        genomic_data['tmb'] = genomic.tumor_mutational_burden
+    
+    biomarker_data = plan.genetic_profile or {}
+    
+    patient_data = plan.patient_profile or {}
+    if hasattr(plan.patient, 'patient_profile'):
+        patient_data['comorbidities'] = []
+        if plan.patient.patient_profile.medical_history:
+            patient_data['comorbidities'] = plan.patient.patient_profile.medical_history.split(',')
+    
+    treatment_data = {
+        'primary_treatments': plan.primary_treatments,
+        'targeted_therapies': plan.targeted_therapies,
+        'rationale': plan.oncologist_notes or ''
+    }
+    
+    # Generate XAI
+    generator = XAIExplanationGenerator()
+    xai_data = generator.generate_xai_explanation(
+        treatment_plan=treatment_data,
+        tumor_data=tumor_data,
+        genomic_data=genomic_data,
+        biomarker_data=biomarker_data,
+        patient_data=patient_data
+    )
+    
+    # Create or update XAI record
+    xai, created = XAIExplanation.objects.update_or_create(
+        treatment_plan=plan,
+        defaults={
+            'patient': plan.patient,
+            'contributing_factors': xai_data['contributing_factors'],
+            'tumor_factors': xai_data['tumor_factors'],
+            'genomic_factors': xai_data['genomic_factors'],
+            'biomarker_factors': xai_data['biomarker_factors'],
+            'comorbidity_factors': xai_data['comorbidity_factors'],
+            'recommendation_summary': xai_data['recommendation_summary'],
+            'explanation_text': xai_data['explanation_text'],
+            'structured_explanation': xai_data['structured_explanation'],
+            'disclaimer': xai_data['disclaimer'],
+        }
+    )
+    
+    messages.success(request, 'XAI Explanation generated successfully.')
+    return redirect('clinical_decision_support:xai_detail', xai_id=xai.id)
+
+
+# ============================================================================
+# Tumor Board Views
+# ============================================================================
+
+@login_required
+@doctor_required
+def tumor_board_list(request):
+    """List all tumor board sessions with statistics"""
+    sessions = TumorBoardSession.objects.select_related(
+        'patient', 'treatment_plan', 'created_by'
+    ).prefetch_related('members')
+    
+    # Filter by status
+    status = request.GET.get('status')
+    if status:
+        sessions = sessions.filter(status=status)
+    
+    # Filter sessions where current doctor is a member or creator
+    my_sessions = request.GET.get('my_sessions')
+    if my_sessions:
+        sessions = sessions.filter(
+            Q(created_by=request.user) |
+            Q(members__doctor=request.user)
+        ).distinct()
+    
+    sessions = sessions.order_by('-created_at')
+    
+    # Statistics for the dashboard
+    all_sessions = TumorBoardSession.objects.all()
+    total_sessions = all_sessions.count()
+    consensus_achieved = all_sessions.filter(status='consensus_achieved').count()
+    in_review = all_sessions.filter(status='in_review').count()
+    plans_activated = all_sessions.filter(status='closed').count()
+    
+    # Current doctor stats
+    my_memberships = TumorBoardMember.objects.filter(doctor=request.user)
+    my_total_reviews = my_memberships.exclude(decision='pending').count()
+    my_pending = my_memberships.filter(decision='pending').count()
+    my_created = all_sessions.filter(created_by=request.user).count()
+    
+    # Approval rate across all sessions
+    total_decisions = TumorBoardMember.objects.exclude(decision='pending').count()
+    total_approved = TumorBoardMember.objects.filter(decision='approved').count()
+    approval_rate = round((total_approved / total_decisions * 100), 1) if total_decisions > 0 else 0
+    
+    paginator = Paginator(sessions, 10)
+    page = request.GET.get('page')
+    page_obj = paginator.get_page(page)
+    
+    context = {
+        'page_obj': page_obj,
+        'status_choices': TumorBoardSession.SESSION_STATUS_CHOICES,
+        'selected_status': status,
+        'my_sessions': my_sessions,
+        # Global stats
+        'total_sessions': total_sessions,
+        'consensus_achieved': consensus_achieved,
+        'in_review': in_review,
+        'plans_activated': plans_activated,
+        'approval_rate': approval_rate,
+        # Doctor's own stats
+        'my_total_reviews': my_total_reviews,
+        'my_pending': my_pending,
+        'my_created': my_created,
+    }
+    return render(request, 'clinical_decision_support/tumor_board_list.html', context)
+
+
+@login_required
+@doctor_required
+def tumor_board_create(request):
+    """Create a new tumor board session"""
+    if request.method == 'POST':
+        title = request.POST.get('title')
+        description = request.POST.get('description')
+        patient_id = request.POST.get('patient_id')
+        plan_id = request.POST.get('plan_id')
+        scheduled_at = request.POST.get('scheduled_at')
+        
+        patient = get_object_or_404(User, id=patient_id, user_type='patient')
+        plan = get_object_or_404(PersonalizedTreatmentPlan, id=plan_id, patient=patient)
+        
+        session = TumorBoardSession.objects.create(
+            title=title,
+            description=description,
+            patient=patient,
+            treatment_plan=plan,
+            created_by=request.user,
+            scheduled_at=scheduled_at if scheduled_at else None,
+            status='draft'
+        )
+        
+        # Create audit log
+        TumorBoardAuditLog.objects.create(
+            session=session,
+            action='session_created',
+            actor=request.user,
+            details={'title': title},
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        
+        messages.success(request, 'Tumor Board session created successfully.')
+        return redirect('clinical_decision_support:tumor_board_detail', session_id=session.id)
+    
+    # Get patients with treatment plans
+    patients = User.objects.filter(user_type='patient').order_by('username')
+    plans = PersonalizedTreatmentPlan.objects.select_related('patient').order_by('-created_at')
+    
+    context = {
+        'patients': patients,
+        'plans': plans,
+    }
+    return render(request, 'clinical_decision_support/tumor_board_create.html', context)
+
+
+@login_required
+@doctor_required
+def tumor_board_detail(request, session_id):
+    """View tumor board session details with full stats"""
+    session = get_object_or_404(
+        TumorBoardSession.objects.select_related('patient', 'treatment_plan', 'created_by'),
+        id=session_id
+    )
+    members = session.members.select_related('doctor').order_by('invited_at')
+    audit_logs = session.audit_logs.select_related('actor').order_by('-timestamp')[:20]
+    
+    # Get XAI if available
+    xai = XAIExplanation.objects.filter(treatment_plan=session.treatment_plan).first()
+    
+    # Get confidence if available
+    confidence = AIConfidenceMetadata.objects.filter(
+        source_id=session.treatment_plan.id,
+        analysis_type='treatment_plan'
+    ).first()
+    
+    # Decision statistics
+    decisions_approved = members.filter(decision='approved').count()
+    decisions_rejected = members.filter(decision='rejected').count()
+    decisions_modify = members.filter(decision='suggested_modification').count()
+    decisions_pending = members.filter(decision='pending').count()
+    
+    # Check current user membership
+    current_member = members.filter(doctor=request.user).first()
+    is_creator = session.created_by == request.user
+    is_lead = is_creator
+    
+    context = {
+        'session': session,
+        'members': members,
+        'audit_logs': audit_logs,
+        'xai': xai,
+        'confidence': confidence,
+        'role_choices': TumorBoardMember.ROLE_CHOICES,
+        'is_creator': is_creator,
+        'is_lead': is_lead,
+        'current_member': current_member,
+        'decisions_approved': decisions_approved,
+        'decisions_rejected': decisions_rejected,
+        'decisions_modify': decisions_modify,
+        'decisions_pending': decisions_pending,
+    }
+    return render(request, 'clinical_decision_support/tumor_board_detail.html', context)
+
+
+@login_required
+@doctor_required
+@require_POST
+def tumor_board_invite_member(request, session_id):
+    """Invite a doctor to tumor board session (POST handler)"""
+    session = get_object_or_404(TumorBoardSession, id=session_id)
+    
+    if session.created_by != request.user:
+        messages.error(request, 'Only the session creator can invite members.')
+        return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+    
+    doctor_id = request.POST.get('doctor_id')
+    role = request.POST.get('role') or request.POST.get('specialization', 'other')
+    
+    doctor = get_object_or_404(User, id=doctor_id, user_type='doctor')
+    
+    if TumorBoardMember.objects.filter(session=session, doctor=doctor).exists():
+        messages.warning(request, 'This doctor is already invited.')
+        return redirect('clinical_decision_support:tumor_board_invite' , session_id=session_id)
+    
+    member = TumorBoardMember.objects.create(
+        session=session,
+        doctor=doctor,
+        role=role
+    )
+    
+    # Audit log
+    TumorBoardAuditLog.objects.create(
+        session=session,
+        action='member_invited',
+        actor=request.user,
+        details={'doctor': doctor.username, 'role': role},
+        ip_address=request.META.get('REMOTE_ADDR')
+    )
+    
+    messages.success(request, f'Dr. {doctor.username} has been invited.')
+    return redirect('clinical_decision_support:tumor_board_invite', session_id=session_id)
+
+
+@login_required
+@doctor_required
+def tumor_board_invite_page(request, session_id):
+    """Display page for inviting members to tumor board session"""
+    session = get_object_or_404(TumorBoardSession, id=session_id)
+    
+    if session.created_by != request.user:
+        messages.error(request, 'Only the session creator can invite members.')
+        return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+    
+    current_members = session.members.select_related('doctor').order_by('invited_at')
+    existing_doctor_ids = list(current_members.values_list('doctor_id', flat=True))
+    existing_doctor_ids.append(request.user.id)
+    
+    available_doctors = User.objects.filter(
+        user_type='doctor'
+    ).exclude(id__in=existing_doctor_ids).order_by('username')
+    
+    context = {
+        'session': session,
+        'current_members': current_members,
+        'available_doctors': available_doctors,
+    }
+    return render(request, 'clinical_decision_support/tumor_board_invite.html', context)
+
+
+@login_required
+@doctor_required
+@require_POST
+def tumor_board_submit_decision(request, session_id):
+    """Submit decision for tumor board"""
+    session = get_object_or_404(TumorBoardSession, id=session_id)
+    
+    try:
+        member = TumorBoardMember.objects.get(session=session, doctor=request.user)
+    except TumorBoardMember.DoesNotExist:
+        messages.error(request, 'You are not a member of this tumor board.')
+        return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+    
+    decision = request.POST.get('decision')
+    comments = request.POST.get('comments')
+    modifications = request.POST.get('modifications')
+    
+    member.decision = decision
+    member.comments = comments
+    member.decision_date = timezone.now()
+    if modifications:
+        member.suggested_modifications = [m.strip() for m in modifications.split('\n') if m.strip()]
+    member.save()
+    
+    # Audit log
+    TumorBoardAuditLog.objects.create(
+        session=session,
+        action='decision_made',
+        actor=request.user,
+        details={'decision': decision, 'role': member.role},
+        ip_address=request.META.get('REMOTE_ADDR')
+    )
+    
+    # Check if consensus is achieved
+    members = session.members.all()
+    if members.exists():
+        all_decided = all(m.decision != 'pending' for m in members)
+        all_approved = all(m.decision == 'approved' for m in members)
+        
+        if all_decided and all_approved:
+            session.status = 'consensus_achieved'
+            session.consensus_reached = True
+            session.consensus_date = timezone.now()
+            session.save()
+            
+            TumorBoardAuditLog.objects.create(
+                session=session,
+                action='consensus_reached',
+                actor=request.user,
+                details={'consensus': 'All members approved'},
+                ip_address=request.META.get('REMOTE_ADDR')
+            )
+            
+            messages.success(request, 'Consensus achieved! Treatment plan can now be activated.')
+        elif all_decided:
+            session.status = 'in_review'
+            session.save()
+    
+    messages.success(request, 'Your decision has been recorded.')
+    return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+
+
+@login_required
+@doctor_required
+@require_POST
+def tumor_board_activate_plan(request, session_id):
+    """Activate treatment plan after consensus, or start a draft session"""
+    session = get_object_or_404(TumorBoardSession, id=session_id)
+    
+    # Handle starting a draft session (changing to in_review)
+    if session.status == 'draft' and session.created_by == request.user:
+        session.status = 'in_review'
+        session.save()
+        TumorBoardAuditLog.objects.create(
+            session=session,
+            action='status_changed',
+            actor=request.user,
+            details={'new_status': 'in_review', 'previous_status': 'draft'},
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        messages.success(request, 'Session is now active and open for review.')
+        return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+    
+    # Handle activating the plan after consensus
+    if not session.can_activate_plan():
+        messages.error(request, 'Cannot activate plan without consensus.')
+        return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+    
+    plan = session.treatment_plan
+    plan.status = 'active'
+    plan.activated_date = timezone.now()
+    plan.reviewed_by = request.user
+    plan.save()
+    
+    session.status = 'closed'
+    session.final_recommendation = request.POST.get('final_recommendation', '')
+    session.save()
+    
+    # Audit log
+    TumorBoardAuditLog.objects.create(
+        session=session,
+        action='plan_activated',
+        actor=request.user,
+        details={'plan_id': str(plan.id)},
+        ip_address=request.META.get('REMOTE_ADDR')
+    )
+    
+    messages.success(request, 'Treatment plan has been activated.')
+    return redirect('clinical_decision_support:tumor_board_detail', session_id=session_id)
+
+
+@login_required
+@doctor_required
+def tumor_board_contributions(request):
+    """Doctor contributions dashboard showing all doctors' stats and participation"""
+    
+    # Get all doctors who have participated in tumor boards
+    all_members = TumorBoardMember.objects.select_related('doctor', 'session')
+    
+    # Build per-doctor statistics
+    doctor_stats = []
+    doctor_ids = all_members.values_list('doctor_id', flat=True).distinct()
+    
+    for doctor in User.objects.filter(id__in=doctor_ids, user_type='doctor').order_by('username'):
+        memberships = all_members.filter(doctor=doctor)
+        total = memberships.count()
+        approved = memberships.filter(decision='approved').count()
+        rejected = memberships.filter(decision='rejected').count()
+        modifications = memberships.filter(decision='suggested_modification').count()
+        pending = memberships.filter(decision='pending').count()
+        decided = total - pending
+        
+        # Sessions created by this doctor
+        created_count = TumorBoardSession.objects.filter(created_by=doctor).count()
+        
+        # Roles breakdown
+        roles = list(memberships.values_list('role', flat=True))
+        role_counts = {}
+        for r in roles:
+            display = dict(TumorBoardMember.ROLE_CHOICES).get(r, r)
+            role_counts[display] = role_counts.get(display, 0) + 1
+        top_role = max(role_counts, key=role_counts.get) if role_counts else 'N/A'
+        
+        # Average response time (from invited_at to decision_date)
+        responded = memberships.exclude(decision='pending').exclude(decision_date__isnull=True)
+        avg_response_hours = None
+        if responded.exists():
+            total_hours = 0
+            count = 0
+            for m in responded:
+                if m.decision_date and m.invited_at:
+                    delta = m.decision_date - m.invited_at
+                    total_hours += delta.total_seconds() / 3600
+                    count += 1
+            if count > 0:
+                avg_response_hours = round(total_hours / count, 1)
+        
+        approval_rate = round((approved / decided * 100), 1) if decided > 0 else 0
+        
+        doctor_stats.append({
+            'doctor': doctor,
+            'total_reviews': total,
+            'approved': approved,
+            'rejected': rejected,
+            'modifications': modifications,
+            'pending': pending,
+            'decided': decided,
+            'created_count': created_count,
+            'approval_rate': approval_rate,
+            'top_role': top_role,
+            'avg_response_hours': avg_response_hours,
+        })
+    
+    # Sort by total reviews descending
+    doctor_stats.sort(key=lambda x: x['total_reviews'], reverse=True)
+    
+    # Global statistics
+    total_sessions = TumorBoardSession.objects.count()
+    total_decisions = all_members.exclude(decision='pending').count()
+    total_approved = all_members.filter(decision='approved').count()
+    total_rejected = all_members.filter(decision='rejected').count()
+    total_modifications = all_members.filter(decision='suggested_modification').count()
+    global_approval_rate = round((total_approved / total_decisions * 100), 1) if total_decisions > 0 else 0
+    consensus_sessions = TumorBoardSession.objects.filter(
+        status__in=['consensus_achieved', 'closed']
+    ).count()
+    consensus_rate = round((consensus_sessions / total_sessions * 100), 1) if total_sessions > 0 else 0
+    
+    # Recent activity
+    recent_decisions = TumorBoardMember.objects.exclude(
+        decision='pending'
+    ).select_related('doctor', 'session').order_by('-decision_date')[:10]
+    
+    context = {
+        'doctor_stats': doctor_stats,
+        'total_sessions': total_sessions,
+        'total_decisions': total_decisions,
+        'total_approved': total_approved,
+        'total_rejected': total_rejected,
+        'total_modifications': total_modifications,
+        'global_approval_rate': global_approval_rate,
+        'consensus_rate': consensus_rate,
+        'consensus_sessions': consensus_sessions,
+        'recent_decisions': recent_decisions,
+        'total_doctors': len(doctor_stats),
+    }
+    return render(request, 'clinical_decision_support/tumor_board_contributions.html', context)
+
+
+# ============================================================================
+# Toxicity Prediction Views
+# ============================================================================
+
+@login_required
+@doctor_required
+def toxicity_dashboard(request):
+    """Toxicity prediction dashboard with stats and filtering"""
+    all_predictions = ToxicityPrediction.objects.select_related(
+        'patient', 'treatment_plan'
+    )
+    
+    # Calculate stats
+    stats = {
+        'total': all_predictions.count(),
+        'low': all_predictions.filter(overall_risk_level='low').count(),
+        'moderate': all_predictions.filter(overall_risk_level='moderate').count(),
+        'high': all_predictions.filter(overall_risk_level='high').count(),
+    }
+    
+    # Get unique drugs for filter
+    drugs = list(all_predictions.values_list('drug_name', flat=True).distinct().order_by('drug_name'))
+    
+    # Apply filters
+    predictions = all_predictions.order_by('-created_at')
+    
+    # Filter by patient name search
+    patient_search = request.GET.get('patient', '').strip()
+    if patient_search:
+        predictions = predictions.filter(patient__username__icontains=patient_search)
+    
+    # Filter by risk level
+    risk_level = request.GET.get('risk_level')
+    if risk_level:
+        predictions = predictions.filter(overall_risk_level=risk_level)
+    
+    # Filter by drug
+    drug_filter = request.GET.get('drug')
+    if drug_filter:
+        predictions = predictions.filter(drug_name=drug_filter)
+    
+    # Paginate
+    paginator = Paginator(predictions, 10)
+    page = request.GET.get('page')
+    predictions = paginator.get_page(page)
+    
+    context = {
+        'predictions': predictions,
+        'stats': stats,
+        'drugs': drugs,
+    }
+    return render(request, 'clinical_decision_support/toxicity_dashboard.html', context)
+
+
+@login_required
+@doctor_required
+def toxicity_detail(request, prediction_id):
+    """Detailed toxicity prediction view"""
+    prediction = get_object_or_404(ToxicityPrediction, id=prediction_id)
+    
+    context = {
+        'prediction': prediction,
+    }
+    return render(request, 'clinical_decision_support/toxicity_detail.html', context)
+
+
+@login_required
+@doctor_required
+def toxicity_predict(request):
+    """Generate new toxicity prediction"""
+    if request.method == 'POST':
+        patient_id = request.POST.get('patient_id')
+        plan_id = request.POST.get('plan_id')
+        drug_name = request.POST.get('drug_name')
+        
+        patient = get_object_or_404(User, id=patient_id, user_type='patient')
+        plan = get_object_or_404(PersonalizedTreatmentPlan, id=plan_id) if plan_id else None
+        
+        # Gather lab values from form
+        labs = {}
+        lab_fields = ['creatinine', 'egfr', 'bilirubin', 'alt', 'ast', 
+                      'neutrophils', 'platelets', 'hemoglobin', 'lvef']
+        for field in lab_fields:
+            value = request.POST.get(field)
+            if value:
+                try:
+                    labs[field] = float(value)
+                except ValueError:
+                    pass
+        
+        # Gather patient data
+        patient_data = {
+            'age': plan.patient_profile.get('age', 50) if plan else 50,
+            'performance_status': int(request.POST.get('performance_status', 0)),
+            'comorbidities': request.POST.get('comorbidities', '').split(',')
+        }
+        
+        # Generate prediction
+        predictor = ToxicityPredictor()
+        result = predictor.predict_toxicities(drug_name, labs, patient_data)
+        
+        # Save prediction
+        prediction = ToxicityPrediction.objects.create(
+            patient=patient,
+            treatment_plan=plan,
+            drug_name=drug_name,
+            drug_class=result['drug_class'],
+            predicted_toxicities=result['predicted_toxicities'],
+            high_risk_toxicities=result['high_risk_toxicities'],
+            overall_risk_level=result['overall_risk_level'],
+            dose_adjustments=result['dose_adjustments'],
+            correlated_lab_values=result['correlated_lab_values'],
+            prediction_confidence=result['prediction_confidence'],
+            patient_summary=result['patient_summary']
+        )
+        
+        messages.success(request, 'Toxicity prediction generated successfully.')
+        return redirect('clinical_decision_support:toxicity_detail', prediction_id=prediction.id)
+    
+    patients = User.objects.filter(user_type='patient').order_by('username')
+    plans = PersonalizedTreatmentPlan.objects.select_related('patient').order_by('-created_at')
+    
+    context = {
+        'patients': patients,
+        'plans': plans,
+    }
+    return render(request, 'clinical_decision_support/toxicity_predict.html', context)
+
+
+# ============================================================================
+# Doctor Symptom Monitoring Views
+# ============================================================================
+
+@login_required
+@doctor_required
+def symptom_monitoring_dashboard(request):
+    """Doctor's symptom monitoring dashboard - shows patients who have logged symptoms for this doctor"""
+    
+    # Get all patients who have symptom logs assigned to this doctor
+    patients_with_logs = User.objects.filter(
+        user_type='patient',
+        symptom_logs__doctor=request.user
+    ).distinct().annotate(
+        latest_log_date=Max('symptom_logs__log_date'),
+        total_logs=Count('symptom_logs', filter=Q(symptom_logs__doctor=request.user))
+    ).order_by('-latest_log_date')
+    
+    # Build patient data with their recent logs
+    patient_data = []
+    for patient in patients_with_logs:
+        recent_logs = PatientSymptomLog.objects.filter(
+            patient=patient, 
+            doctor=request.user
+        ).order_by('-log_date')[:5]
+        
+        # Check for severe symptoms in recent logs
+        has_severe = False
+        severe_count = 0
+        for log in recent_logs:
+            severe_symptoms = log.get_severe_symptoms()
+            if severe_symptoms:
+                has_severe = True
+                severe_count += len(severe_symptoms)
+        
+        patient_data.append({
+            'patient': patient,
+            'latest_log_date': patient.latest_log_date,
+            'total_logs': patient.total_logs,
+            'has_severe': has_severe,
+            'severe_count': severe_count,
+        })
+    
+    # Pagination
+    paginator = Paginator(patient_data, 10)
+    page = request.GET.get('page')
+    page_obj = paginator.get_page(page)
+    
+    context = {
+        'page_obj': page_obj,
+        'total_patients': patients_with_logs.count(),
+    }
+    return render(request, 'clinical_decision_support/symptom_monitoring_dashboard.html', context)
+
+
+@login_required
+@doctor_required
+def symptom_monitoring_patient(request, patient_id):
+    """View symptom details for a specific patient - only logs assigned to this doctor"""
+    patient = get_object_or_404(User, id=patient_id, user_type='patient')
+    
+    # Get or create monitor
+    monitor, created = DoctorSymptomMonitor.objects.get_or_create(
+        patient=patient,
+        doctor=request.user,
+        defaults={'alert_status': 'none'}
+    )
+    
+    # Get symptom logs - only those assigned to this doctor
+    symptom_logs = PatientSymptomLog.objects.filter(
+        patient=patient, 
+        doctor=request.user
+    ).order_by('-log_date')
+    
+    # Get treatment plan
+    plan = PersonalizedTreatmentPlan.objects.filter(patient=patient).order_by('-created_at').first()
+    
+    # Build symptom timeline
+    timeline_data = []
+    for log in symptom_logs[:30]:  # Last 30 entries
+        severe_symptoms = log.get_severe_symptoms()
+        timeline_data.append({
+            'date': log.log_date.isoformat(),
+            'overall_wellbeing': log.overall_wellbeing,
+            'severe_symptoms': severe_symptoms,
+            'has_severe': len(severe_symptoms) > 0
+        })
+    
+    # Check for threshold breaches
+    breaches = []
+    for log in symptom_logs[:7]:  # Check last week
+        severe = log.get_severe_symptoms()
+        for s in severe:
+            breaches.append({
+                'symptom': s['symptom'],
+                'severity': s['severity'],
+                'date': log.log_date.isoformat(),
+                'threshold': 3  # Threshold is 3 (moderate)
+            })
+    
+    # Update monitor
+    if breaches:
+        if any(b['severity'] >= 5 for b in breaches):
+            monitor.alert_status = 'critical'
+        elif any(b['severity'] >= 4 for b in breaches):
+            monitor.alert_status = 'urgent'
+        else:
+            monitor.alert_status = 'attention'
+    else:
+        monitor.alert_status = 'none'
+    
+    monitor.threshold_breaches = breaches[:10]
+    monitor.save()
+    
+    paginator = Paginator(symptom_logs, 10)
+    page = request.GET.get('page')
+    page_obj = paginator.get_page(page)
+    
+    context = {
+        'patient': patient,
+        'monitor': monitor,
+        'page_obj': page_obj,
+        'plan': plan,
+        'timeline_data': json.dumps(timeline_data),
+        'breaches': breaches[:5],
+    }
+    return render(request, 'clinical_decision_support/symptom_monitoring_patient.html', context)
+
+
+@login_required
+@doctor_required
+@require_POST
+def add_intervention(request, patient_id):
+    """Add a doctor intervention/note"""
+    patient = get_object_or_404(User, id=patient_id, user_type='patient')
+    
+    monitor = get_object_or_404(DoctorSymptomMonitor, patient=patient, doctor=request.user)
+    
+    intervention = {
+        'date': timezone.now().isoformat(),
+        'intervention': request.POST.get('intervention'),
+        'doctor': request.user.username
+    }
+    
+    interventions = monitor.interventions or []
+    interventions.append(intervention)
+    monitor.interventions = interventions
+    monitor.doctor_notes = request.POST.get('notes', monitor.doctor_notes)
+    monitor.last_reviewed_at = timezone.now()
+    monitor.last_reviewed_by = request.user
+    monitor.save()
+    
+    # Mark symptom logs as reviewed
+    PatientSymptomLog.objects.filter(
+        patient=patient,
+        reviewed_by_doctor=False
+    ).update(
+        reviewed_by_doctor=True,
+        reviewed_at=timezone.now(),
+        doctor_response=request.POST.get('response', '')
+    )
+    
+    messages.success(request, 'Intervention recorded and symptoms marked as reviewed.')
+    return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
+
+
+@login_required
+@doctor_required
+def symptom_update_status(request, patient_id):
+    """Update the monitoring status for a patient"""
+    if request.method != 'POST':
+        return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
+    
+    try:
+        patient = User.objects.get(id=patient_id, user_type='patient')
+    except User.DoesNotExist:
+        messages.error(request, 'Patient not found.')
+        return redirect('clinical_decision_support:symptom_monitoring_dashboard')
+    
+    monitor = DoctorSymptomMonitor.objects.filter(
+        patient=patient,
+        doctor=request.user
+    ).first()
+    
+    if not monitor:
+        messages.error(request, 'No active monitoring found for this patient.')
+        return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
+    
+    status = request.POST.get('status', 'reviewed')
+    monitor.last_reviewed_at = timezone.now()
+    monitor.last_reviewed_by = request.user
+    monitor.save()
+    
+    # Mark all unreviewed symptom logs as reviewed
+    PatientSymptomLog.objects.filter(
+        patient=patient,
+        reviewed_by_doctor=False
+    ).update(
+        reviewed_by_doctor=True,
+        reviewed_at=timezone.now()
+    )
+    
+    messages.success(request, 'Patient symptoms marked as reviewed.')
+    return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
+
+
+# ============================================================================
+# API Endpoints for AJAX
+# ============================================================================
+
+@login_required
+@doctor_required
+def api_get_plans_for_patient(request, patient_id):
+    """API: Get treatment plans for a patient"""
+    plans = PersonalizedTreatmentPlan.objects.filter(
+        patient_id=patient_id
+    ).values('id', 'plan_name', 'cancer_type', 'cancer_stage', 'status')
+    return JsonResponse({'plans': list(plans)})
+
+
+@login_required
+@doctor_required
+def api_get_doctors(request):
+    """API: Get list of verified doctors"""
+    doctors = User.objects.filter(
+        user_type='doctor'
+    ).exclude(id=request.user.id).values('id', 'username', 'first_name', 'last_name')
+    return JsonResponse({'doctors': list(doctors)})
+
+
+# ============================================================================
+# Patient Alerts & Notifications (Doctor Features)
+# ============================================================================
+
+from patient_portal.models import PatientAlert
+
+@login_required
+@doctor_required
+def patient_alerts_dashboard(request):
+    """Dashboard for doctors to manage patient alerts"""
+    # Get patients who have been consulted in the past 1 month
+    one_month_ago = timezone.now() - timedelta(days=30)
+    consulted_patients = Consultation.objects.filter(
+        doctor=request.user,
+        scheduled_datetime__gte=one_month_ago,
+        status__in=['scheduled', 'completed', 'in_progress']
+    ).values_list('patient_id', flat=True).distinct()
+    
+    patients = User.objects.filter(
+        id__in=consulted_patients,
+        user_type='patient'
+    ).order_by('first_name', 'last_name')
+    
+    # Search functionality
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        patients = patients.filter(
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query) |
+            Q(email__icontains=search_query) |
+            Q(username__icontains=search_query)
+        )
+    
+    # Filter by patient if specified
+    patient_id = request.GET.get('patient')
+    selected_patient = None
+    alerts = PatientAlert.objects.none()
+    
+    if patient_id:
+        try:
+            selected_patient = User.objects.get(id=patient_id, user_type='patient')
+            alerts = PatientAlert.objects.filter(
+                patient=selected_patient
+            ).order_by('-created_at')[:20]
+        except User.DoesNotExist:
+            pass
+    
+    # Get recent alerts sent by this doctor (via metadata)
+    recent_sent = PatientAlert.objects.filter(
+        metadata__sent_by=str(request.user.id)
+    ).order_by('-created_at')[:10]
+    
+    context = {
+        'patients': patients,
+        'selected_patient': selected_patient,
+        'alerts': alerts,
+        'recent_sent': recent_sent,
+        'search_query': search_query,
+        'total_patients': patients.count(),
+    }
+    return render(request, 'clinical_decision_support/patient_alerts_dashboard.html', context)
+
+
+@login_required
+@doctor_required
+def send_patient_alert(request):
+    """Send an alert/notification to a patient"""
+    if request.method != 'POST':
+        # Show form for GET request - only patients consulted in the past 1 month
+        one_month_ago = timezone.now() - timedelta(days=30)
+        consulted_patients = Consultation.objects.filter(
+            doctor=request.user,
+            scheduled_datetime__gte=one_month_ago,
+            status__in=['scheduled', 'completed', 'in_progress']
+        ).values_list('patient_id', flat=True).distinct()
+        
+        patients = User.objects.filter(
+            id__in=consulted_patients,
+            user_type='patient'
+        ).order_by('first_name', 'last_name')
+        
+        # Search functionality
+        search_query = request.GET.get('search', '').strip()
+        if search_query:
+            patients = patients.filter(
+                Q(first_name__icontains=search_query) |
+                Q(last_name__icontains=search_query) |
+                Q(email__icontains=search_query) |
+                Q(username__icontains=search_query)
+            )
+        
+        # Pre-select patient if provided
+        patient_id = request.GET.get('patient')
+        selected_patient = None
+        if patient_id:
+            try:
+                selected_patient = User.objects.get(id=patient_id, user_type='patient')
+            except User.DoesNotExist:
+                pass
+        
+        context = {
+            'patients': patients,
+            'selected_patient': selected_patient,
+            'alert_types': PatientAlert.ALERT_TYPE_CHOICES,
+            'search_query': search_query,
+            'total_patients': patients.count(),
+        }
+        return render(request, 'clinical_decision_support/send_patient_alert.html', context)
+    
+    # Process POST request
+    patient_id = request.POST.get('patient_id')
+    alert_type = request.POST.get('alert_type', 'general')
+    title = request.POST.get('title', '').strip()
+    message = request.POST.get('message', '').strip()
+    is_urgent = request.POST.get('is_urgent') == 'on'
+    
+    if not patient_id or not title or not message:
+        messages.error(request, 'Please provide patient, title, and message.')
+        return redirect('clinical_decision_support:send_patient_alert')
+    
+    try:
+        patient = User.objects.get(id=patient_id, user_type='patient')
+    except User.DoesNotExist:
+        messages.error(request, 'Patient not found.')
+        return redirect('clinical_decision_support:send_patient_alert')
+    
+    # Create the alert
+    PatientAlert.objects.create(
+        patient=patient,
+        alert_type=alert_type,
+        title=title,
+        message=message,
+        is_urgent=is_urgent,
+        status='sent',
+        sent_at=timezone.now(),
+        metadata={
+            'sent_by': str(request.user.id),
+            'sent_by_name': request.user.get_full_name() or request.user.username,
+            'type': 'doctor_message'
+        }
+    )
+    
+    messages.success(request, f'Alert sent to {patient.get_full_name() or patient.username} successfully.')
+    return redirect('clinical_decision_support:patient_alerts_dashboard')
+
+
+@login_required
+@doctor_required
+def send_bulk_alerts(request):
+    """Send alerts to multiple patients at once"""
+    if request.method != 'POST':
+        # Show form for GET request
+        patients = User.objects.filter(
+            user_type='patient',
+            treatment_plans__isnull=False
+        ).distinct().order_by('username')
+        
+        context = {
+            'patients': patients,
+            'alert_types': PatientAlert.ALERT_TYPE_CHOICES,
+        }
+        return render(request, 'clinical_decision_support/send_bulk_alerts.html', context)
+    
+    # Process POST request
+    patient_ids = request.POST.getlist('patient_ids')
+    alert_type = request.POST.get('alert_type', 'general')
+    title = request.POST.get('title', '').strip()
+    message = request.POST.get('message', '').strip()
+    is_urgent = request.POST.get('is_urgent') == 'on'
+    
+    if not patient_ids or not title or not message:
+        messages.error(request, 'Please select patients and provide title and message.')
+        return redirect('clinical_decision_support:send_bulk_alerts')
+    
+    # Get patients
+    patients = User.objects.filter(id__in=patient_ids, user_type='patient')
+    
+    # Create alerts for all patients
+    alerts_created = 0
+    for patient in patients:
+        PatientAlert.objects.create(
+            patient=patient,
+            alert_type=alert_type,
+            title=title,
+            message=message,
+            is_urgent=is_urgent,
+            status='sent',
+            sent_at=timezone.now(),
+            metadata={
+                'sent_by': str(request.user.id),
+                'sent_by_name': request.user.get_full_name() or request.user.username,
+                'type': 'doctor_bulk_message'
+            }
+        )
+        alerts_created += 1
+    
+    messages.success(request, f'Alert sent to {alerts_created} patient(s) successfully.')
+    return redirect('clinical_decision_support:patient_alerts_dashboard')
+
+
+@login_required
+@doctor_required
+def quick_send_alert(request, patient_id):
+    """Quick send alert from symptom monitoring page"""
+    if request.method != 'POST':
+        return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
+    
+    try:
+        patient = User.objects.get(id=patient_id, user_type='patient')
+    except User.DoesNotExist:
+        messages.error(request, 'Patient not found.')
+        return redirect('clinical_decision_support:symptom_monitoring_dashboard')
+    
+    alert_type = request.POST.get('alert_type', 'general')
+    title = request.POST.get('title', '').strip()
+    message = request.POST.get('message', '').strip()
+    is_urgent = request.POST.get('is_urgent') == 'on'
+    
+    if not title or not message:
+        messages.error(request, 'Please provide title and message.')
+        return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
+    
+    # Create the alert
+    PatientAlert.objects.create(
+        patient=patient,
+        alert_type=alert_type,
+        title=title,
+        message=message,
+        is_urgent=is_urgent,
+        status='sent',
+        sent_at=timezone.now(),
+        metadata={
+            'sent_by': str(request.user.id),
+            'sent_by_name': request.user.get_full_name() or request.user.username,
+            'type': 'doctor_quick_message'
+        }
+    )
+    
+    messages.success(request, f'Alert sent to {patient.get_full_name() or patient.username} successfully.')
+    return redirect('clinical_decision_support:symptom_monitoring_patient', patient_id=patient_id)
