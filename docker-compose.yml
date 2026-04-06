@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  web:
+    image: rural_care_app:latest
+    build: .
+    command: gunicorn cancer_treatment_system.wsgi:application --bind 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+  worker:
+    image: rural_care_app:latest
+    build: .
+    command: celery -A cancer_treatment_system worker --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - db
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+
+  redis:
+    image: redis:7
