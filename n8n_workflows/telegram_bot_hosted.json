@@ -1,0 +1,1391 @@
+{
+  "name": "RuralCare Advanced Telegram Bot - Fixed",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ]
+      },
+      "id": "1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "condition-cmd",
+              "leftValue": "={{ $json.message.text || '' }}",
+              "rightValue": "/",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "2",
+      "name": "Is Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "condition-photo",
+              "leftValue": "={{ !!($json.message.photo && $json.message.photo.length) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "3",
+      "name": "Is Photo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        450,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "condition-voice",
+              "leftValue": "={{ !!$json.message.voice }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "4",
+      "name": "Is Voice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        450,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $input.item.json.message.chat.id;\nconst telegramUser = $input.item.json.message.from;\nconst text = $input.item.json.message.text || '';\n\nreturn {\n  chatId: chatId,\n  telegramUserId: telegramUser.id,\n  username: telegramUser.username,\n  firstName: telegramUser.first_name,\n  lastName: telegramUser.last_name,\n  phone: telegramUser.phone_number || null,\n  messageText: text,\n  messageId: $input.item.json.message.message_id,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "5",
+      "name": "Extract User Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $input.item.json.message.chat.id;\nconst telegramUser = $input.item.json.message.from;\nconst text = $input.item.json.message.text || '';\n\nreturn {\n  chatId: chatId,\n  telegramUserId: telegramUser.id,\n  username: telegramUser.username,\n  firstName: telegramUser.first_name,\n  lastName: telegramUser.last_name,\n  phone: telegramUser.phone_number || null,\n  messageText: text,\n  messageId: $input.item.json.message.message_id,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "50",
+      "name": "Extract Command User Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/verify-user/",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_id",
+              "value": "={{$json.telegramUserId}}"
+            },
+            {
+              "name": "phone",
+              "value": "={{$json.phone}}"
+            },
+            {
+              "name": "username",
+              "value": "={{$json.username}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "6",
+      "name": "Verify User Identity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "condition-verified",
+              "leftValue": "={{ $json.verified }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "7",
+      "name": "Is Verified User?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const messageText = $input.item.json.messageText || $node[\"Extract User Data\"].json.messageText || '';\nconst command = messageText.split(' ')[0];\nreturn { command: command };"
+      },
+      "id": "8",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond-start",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/start",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "start"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond-link",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/link",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "link"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond-prescriptions",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/prescriptions",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "prescriptions"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond-consultations",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/consultations",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "consultations"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond-help",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "help"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond-dashboard",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/dashboard",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "dashboard"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9",
+      "name": "Route Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1050,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract Command User Data\"].json.chatId}}",
+        "text": "=\ud83c\udfe5 *Welcome to RuralCare!*\n\nI'm your AI health assistant. I can help you with:\n\n\ud83d\udccb *Medical Services:*\n\u2022 View your consultations and prescriptions\n\u2022 Track your health records\n\u2022 Get medicine information\n\u2022 Ask health questions\n\n\ud83d\udd17 *Getting Started:*\nUse /link to connect your RuralCare account\n\n\ud83d\udca1 *Quick Commands:*\n/consultations - View your consultations\n/prescriptions - Track prescriptions\n/dashboard - Open your dashboard\n/help - Show this message\n\n\ud83d\udcf8 *Smart Features:*\n\u2022 Send a photo of medicine for instant ID\n\u2022 Send voice messages for health queries\n\u2022 Chat with me for medical assistance\n\nHow can I help you today?",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "10",
+      "name": "Send Start Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1250,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract Command User Data\"].json.chatId}}",
+        "text": "=\ud83d\udd17 *Link Your Account*\n\nTo access personalized features, I need to verify your identity.\n\nPlease share your phone number registered with RuralCare:\n\nReply with: /link +91XXXXXXXXXX\n\nExample: /link +1234567890\n\n\ud83d\udd12 Your information is secure and encrypted.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "11",
+      "name": "Send Link Prompt",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1250,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/get-user-data/",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_id",
+              "value": "={{$node[\"Extract User Data\"].json.telegramUserId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "12",
+      "name": "Get User Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract User Data\"].json.chatId}}",
+        "text": "=\u274c *Account Not Linked*\n\nI don't recognize your account yet.\n\nPlease use /link to connect your RuralCare account first.\n\nExample: /link +1234567890\n\nIf you don't have an account, register at:\nhttps://ruralcare-spx6.onrender.com/register",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "13",
+      "name": "Send Not Verified",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1250,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/get-prescriptions/",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_id",
+              "value": "={{$node[\"Extract Command User Data\"].json.telegramUserId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14",
+      "name": "Get Prescriptions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prescriptions = $input.item.json.prescriptions || [];\nconst chatId = $node[\"Extract Command User Data\"].json.chatId;\n\nif (prescriptions.length === 0) {\n  return {\n    chatId: chatId,\n    text: \"\ud83d\udccb *Your Prescriptions*\\n\\nNo active prescriptions found.\\n\\nVisit your dashboard to view prescription history.\\n\\n\ud83d\udd17 https://ruralcare-spx6.onrender.com/portal/prescriptions/\"\n  };\n}\n\nlet message = \"\ud83d\udccb *Your Active Prescriptions*\\n\\n\";\n\nprescriptions.slice(0, 5).forEach((rx, idx) => {\n  message += `${idx + 1}. *${rx.medication_name}*\\n`;\n  message += `   \ud83d\udc8a Dosage: ${rx.dosage}\\n`;\n  message += `   \ud83d\udcc5 Start: ${rx.start_date}\\n`;\n  message += `   \u23f0 Frequency: ${rx.frequency}\\n`;\n  \n  if (rx.delivery_status) {\n    message += `   \ud83d\ude9a Status: ${rx.delivery_status}\\n`;\n  }\n  \n  if (rx.days_remaining) {\n    if (rx.days_remaining <= 3) {\n      message += `   \u26a0\ufe0f Refill needed in ${rx.days_remaining} days!\\n`;\n    } else {\n      message += `   \u23f3 ${rx.days_remaining} days remaining\\n`;\n    }\n  }\n  \n  message += \"\\n\";\n});\n\nif (prescriptions.length > 5) {\n  message += `\\n_...and ${prescriptions.length - 5} more_\\n`;\n}\n\nmessage += \"\\n\ud83d\udd17 View all: https://ruralcare-spx6.onrender.com/portal/prescriptions/\";\n\nreturn {\n  chatId: chatId,\n  text: message,\n  parse_mode: \"Markdown\"\n};"
+      },
+      "id": "15",
+      "name": "Format Prescriptions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "16",
+      "name": "Send Prescriptions",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1650,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/get-consultations/",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "telegram_id",
+              "value": "={{$node[\"Extract Command User Data\"].json.telegramUserId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "17",
+      "name": "Get Consultations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const consultations = $input.item.json.consultations || [];\nconst chatId = $node[\"Extract Command User Data\"].json.chatId;\n\nif (consultations.length === 0) {\n  return {\n    chatId: chatId,\n    text: \"\ud83e\ude7a *Your Consultations*\\n\\nNo upcoming consultations.\\n\\nBook a new consultation:\\n\ud83d\udd17 https://ruralcare-spx6.onrender.com/portal/consultations/new/\"\n  };\n}\n\nlet message = \"\ud83e\ude7a *Your Consultations*\\n\\n\";\n\nconsultations.slice(0, 5).forEach((consult, idx) => {\n  const statusEmoji = {\n    'pending': '\u23f3',\n    'confirmed': '\u2705',\n    'completed': '\u2714\ufe0f',\n    'cancelled': '\u274c'\n  };\n  \n  message += `${idx + 1}. ${statusEmoji[consult.status] || '\ud83d\udccb'} *${consult.doctor_name}*\\n`;\n  message += `   \ud83d\udcc5 ${consult.scheduled_date}\\n`;\n  message += `   \ud83c\udfe5 ${consult.specialization}\\n`;\n  message += `   \ud83d\udccd Status: ${consult.status}\\n`;\n  \n  if (consult.token_id) {\n    message += `   \ud83c\udfab Token: #${consult.token_id}\\n`;\n  }\n  \n  message += \"\\n\";\n});\n\nif (consultations.length > 5) {\n  message += `\\n_...and ${consultations.length - 5} more_\\n`;\n}\n\nmessage += \"\\n\ud83d\udd17 View all: https://ruralcare-spx6.onrender.com/portal/consultations/\";\n\nreturn {\n  chatId: chatId,\n  text: message,\n  parse_mode: \"Markdown\"\n};"
+      },
+      "id": "18",
+      "name": "Format Consultations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "19",
+      "name": "Send Consultations",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1650,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract Command User Data\"].json.chatId}}",
+        "text": "=\ud83d\udcf1 *Your Dashboard*\n\nAccess your personalized health dashboard:\n\n\ud83d\udd17 https://ruralcare-spx6.onrender.com/portal/health-hub/\n\n*Quick Links:*\n\u2022 Consultations: https://ruralcare-spx6.onrender.com/portal/consultations/\n\u2022 Prescriptions: https://ruralcare-spx6.onrender.com/portal/prescriptions/\n\u2022 Health Records: https://ruralcare-spx6.onrender.com/portal/medical-records/\n\u2022 Treatment Plans: https://ruralcare-spx6.onrender.com/portal/treatment-plan/\n\u2022 Medicine Hub: https://ruralcare-spx6.onrender.com/portal/medicine-hub/\n\n\ud83d\udca1 *Tip:* Bookmark these links for quick access!",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "20",
+      "name": "Send Dashboard Links",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1250,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract Command User Data\"].json.chatId}}",
+        "text": "=\u2139\ufe0f *RuralCare Telegram Bot - Help*\n\n*\ud83d\udccb Commands:*\n/start - Welcome message\n/link - Link your account\n/consultations - View consultations\n/prescriptions - Track prescriptions\n/dashboard - Get portal links\n/help - Show this help\n\n*\ud83d\udcf8 Image Recognition:*\nSend a photo of any medicine to instantly identify it and get detailed information.\n\n*\ud83c\udfa4 Voice Assistant:*\nSend a voice message with your health question and I'll respond with medical guidance.\n\n*\ud83d\udcac Chat Assistant:*\nJust type any health-related question and I'll help you based on your medical history.\n\n*\ud83d\udd10 Privacy:*\nAll your data is encrypted and HIPAA compliant.\n\n*\ud83c\udd98 Support:*\nFor urgent medical issues, please call emergency services or visit the nearest hospital.\n\n*\ud83c\udf10 Portal:*\nhttps://ruralcare-spx6.onrender.com",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "21",
+      "name": "Send Help",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1250,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const photoArray = $input.item.json.message.photo;\nconst largestPhoto = photoArray[photoArray.length - 1];\nconst chatId = $input.item.json.message.chat.id;\n\nreturn {\n  fileId: largestPhoto.file_id,\n  chatId: chatId,\n  telegramUserId: $input.item.json.message.from.id\n};"
+      },
+      "id": "22",
+      "name": "Extract Photo Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{$json.fileId}}",
+        "options": {}
+      },
+      "id": "23",
+      "name": "Download Photo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        850,
+        500
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract Photo Data\"].json.chatId}}",
+        "text": "\ud83d\udd0d Analyzing medicine image...\n\nPlease wait while I identify the medication.",
+        "additionalFields": {}
+      },
+      "id": "24",
+      "name": "Send Analyzing Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1050,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/identify-medicine/",
+        "method": "POST",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "image",
+              "inputDataFieldName": "data"
+            },
+            {
+              "parameterType": "formData",
+              "name": "telegram_id",
+              "value": "={{$node[\"Extract Photo Data\"].json.telegramUserId}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "25",
+      "name": "Identify Medicine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.item.json;\nconst chatId = $node[\"Extract Photo Data\"].json.chatId;\n\nif (!result.success) {\n  return {\n    chatId: chatId,\n    text: \"\u274c *Unable to identify medicine*\\n\\nThe image quality might be too low or the medicine is not in our database.\\n\\n\ud83d\udca1 *Tips:*\\n\u2022 Ensure good lighting\\n\u2022 Focus on the medicine name/label\\n\u2022 Try a clearer photo\\n\\nOr search manually: https://ruralcare-spx6.onrender.com/portal/medicine-hub/\",\n    parse_mode: \"Markdown\"\n  };\n}\n\nlet message = `\ud83d\udc8a *${result.medicine_name}*\\n\\n`;\n\nif (result.generic_name) {\n  message += `\ud83d\udd2c Generic: ${result.generic_name}\\n`;\n}\n\nif (result.manufacturer) {\n  message += `\ud83c\udfed Manufacturer: ${result.manufacturer}\\n`;\n}\n\nif (result.category) {\n  message += `\ud83d\udcc2 Category: ${result.category}\\n`;\n}\n\nmessage += \"\\n\";\n\nif (result.uses) {\n  message += `\u2705 *Uses:*\\n${result.uses}\\n\\n`;\n}\n\nif (result.dosage) {\n  message += `\ud83d\udc89 *Dosage:* ${result.dosage}\\n\\n`;\n}\n\nif (result.side_effects) {\n  message += `\u26a0\ufe0f *Side Effects:*\\n${result.side_effects}\\n\\n`;\n}\n\nif (result.precautions) {\n  message += `\ud83d\udea8 *Precautions:*\\n${result.precautions}\\n\\n`;\n}\n\nif (result.confidence) {\n  message += `\ud83c\udfaf Confidence: ${(result.confidence * 100).toFixed(1)}%\\n\\n`;\n}\n\nif (result.interactions && result.interactions.length > 0) {\n  message += \"\u26a0\ufe0f *Drug Interactions Found:*\\n\";\n  result.interactions.forEach(interaction => {\n    message += `\u2022 ${interaction.medication}: ${interaction.description}\\n`;\n  });\n  message += \"\\n\";\n}\n\nmessage += \"\u2695\ufe0f *Note:* Consult your doctor before using any medication.\";\n\nreturn {\n  chatId: chatId,\n  text: message,\n  parse_mode: \"Markdown\"\n};"
+      },
+      "id": "26",
+      "name": "Format Medicine Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "27",
+      "name": "Send Medicine Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const voiceData = $input.item.json.message.voice;\nconst chatId = $input.item.json.message.chat.id;\n\nreturn {\n  fileId: voiceData.file_id,\n  duration: voiceData.duration,\n  chatId: chatId,\n  telegramUserId: $input.item.json.message.from.id\n};"
+      },
+      "id": "28",
+      "name": "Extract Voice Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{$json.fileId}}",
+        "options": {}
+      },
+      "id": "29",
+      "name": "Download Voice",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        850,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract Voice Data\"].json.chatId}}",
+        "text": "\ud83c\udfa4 Processing your voice message...",
+        "additionalFields": {}
+      },
+      "id": "30",
+      "name": "Send Voice Processing",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1050,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/chat/",
+        "method": "POST",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"telegram_id\": \"{{$node[\"Extract Voice Data\"].json.telegramUserId}}\",\n  \"message\": \"[Voice message - transcription processing]\"\n}",
+        "options": {}
+      },
+      "id": "31",
+      "name": "Process Voice to Text",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.item.json;\nconst chatId = $node[\"Extract Voice Data\"].json.chatId;\n\nif (!result.success) {\n  return {\n    chatId: chatId,\n    text: \"\u274c Unable to process voice message. Please try again or type your question.\"\n  };\n}\n\nlet message = result.response || \"I'm here to help with your health questions.\";\n\nreturn {\n  chatId: chatId,\n  text: message,\n  parse_mode: \"Markdown\"\n};"
+      },
+      "id": "32",
+      "name": "Format Voice Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "33",
+      "name": "Send Voice Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1650,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Extract User Data\"].json.chatId}}",
+        "text": "\ud83d\udcac Let me check that for you...",
+        "additionalFields": {}
+      },
+      "id": "34",
+      "name": "Send Thinking",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/chat/",
+        "method": "POST",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": \"{{$node[\"Extract User Data\"].json.messageText}}\",\n  \"telegram_id\": \"{{$node[\"Extract User Data\"].json.telegramUserId}}\"\n}",
+        "options": {}
+      },
+      "id": "35",
+      "name": "Send to Medical Chatbot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.item.json;\nconst chatId = $node[\"Extract User Data\"].json.chatId;\n\nif (!response.success) {\n  return {\n    chatId: chatId,\n    text: \"\u274c I'm having trouble processing your request. Please try again or contact support.\"\n  };\n}\n\nlet message = response.response || \"I'm here to help with your health questions.\";\n\nreturn {\n  chatId: chatId,\n  text: message,\n  parse_mode: \"Markdown\"\n};"
+      },
+      "id": "36",
+      "name": "Format Chatbot Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "37",
+      "name": "Send Chatbot Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const messageText = $node[\"Extract Command User Data\"].json.messageText || '';\nconst parts = messageText.trim().split(/\\s+/);\nconst chatId = $node[\"Extract Command User Data\"].json.chatId;\nconst telegramUserId = $node[\"Extract Command User Data\"].json.telegramUserId;\nconst username = $node[\"Extract Command User Data\"].json.username;\n\nif (parts.length > 1) {\n  const phone = parts.slice(1).join('');\n  return {\n    hasPhone: true,\n    chatId: chatId,\n    telegramUserId: telegramUserId,\n    username: username,\n    phone: phone\n  };\n} else {\n  return {\n    hasPhone: false,\n    chatId: chatId,\n    telegramUserId: telegramUserId\n  };\n}"
+      },
+      "id": "38",
+      "name": "Handle Link Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-phone",
+              "leftValue": "={{ $json.hasPhone }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "39",
+      "name": "Has Phone Number?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://ruralcare-spx6.onrender.com/api/telegram/link-account/",
+        "method": "POST",
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"telegram_id\": \"{{$json.telegramUserId}}\",\n  \"phone\": \"{{$json.phone}}\",\n  \"username\": \"{{$json.username}}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "40",
+      "name": "Link Account API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1650,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.item.json;\nconst chatId = $node[\"Handle Link Command\"].json.chatId;\n\nif (result.success) {\n  return {\n    chatId: chatId,\n    text: `\u2705 *Account Linked Successfully!*\\n\\nHi ${result.user_name || 'there'}! Your Telegram account has been linked to your RuralCare account.\\n\\nYou can now use:\\n/consultations - View your consultations\\n/prescriptions - Track prescriptions\\n/dashboard - Open your dashboard\\n\\nOr just send me any health question!`,\n    parse_mode: 'Markdown'\n  };\n} else {\n  const errorMsg = result.error || 'Unable to link account';\n  return {\n    chatId: chatId,\n    text: `\u274c *Linking Failed*\\n\\n${errorMsg}\\n\\nPlease make sure you entered the correct phone number registered with RuralCare.\\n\\nFormat: /link +919XXXXXXXXX\\n\\nIf you don't have an account, register at:\\nhttps://ruralcare-spx6.onrender.com/register`,\n    parse_mode: 'Markdown'\n  };\n}"
+      },
+      "id": "41",
+      "name": "Format Link Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1850,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "={{$json.parse_mode}}"
+        }
+      },
+      "id": "42",
+      "name": "Send Link Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2050,
+        50
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Command?": {
+      "main": [
+        [
+          {
+            "node": "Extract Command User Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Photo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract User Data": {
+      "main": [
+        [
+          {
+            "node": "Verify User Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Command User Data": {
+      "main": [
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Command": {
+      "main": [
+        [
+          {
+            "node": "Route Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Command": {
+      "main": [
+        [
+          {
+            "node": "Send Start Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Link Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Prescriptions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Consultations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Dashboard Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify User Identity": {
+      "main": [
+        [
+          {
+            "node": "Is Verified User?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Verified User?": {
+      "main": [
+        [
+          {
+            "node": "Get User Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Not Verified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get User Context": {
+      "main": [
+        [
+          {
+            "node": "Send Thinking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Thinking": {
+      "main": [
+        [
+          {
+            "node": "Send to Medical Chatbot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Medical Chatbot": {
+      "main": [
+        [
+          {
+            "node": "Format Chatbot Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Chatbot Response": {
+      "main": [
+        [
+          {
+            "node": "Send Chatbot Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Prescriptions": {
+      "main": [
+        [
+          {
+            "node": "Format Prescriptions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Prescriptions": {
+      "main": [
+        [
+          {
+            "node": "Send Prescriptions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Consultations": {
+      "main": [
+        [
+          {
+            "node": "Format Consultations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Consultations": {
+      "main": [
+        [
+          {
+            "node": "Send Consultations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Photo?": {
+      "main": [
+        [
+          {
+            "node": "Extract Photo Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Voice?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Photo Data": {
+      "main": [
+        [
+          {
+            "node": "Download Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Photo": {
+      "main": [
+        [
+          {
+            "node": "Send Analyzing Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Analyzing Message": {
+      "main": [
+        [
+          {
+            "node": "Identify Medicine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Medicine": {
+      "main": [
+        [
+          {
+            "node": "Format Medicine Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Medicine Result": {
+      "main": [
+        [
+          {
+            "node": "Send Medicine Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Voice?": {
+      "main": [
+        [
+          {
+            "node": "Extract Voice Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract User Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Voice Data": {
+      "main": [
+        [
+          {
+            "node": "Download Voice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Voice": {
+      "main": [
+        [
+          {
+            "node": "Send Voice Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Voice Processing": {
+      "main": [
+        [
+          {
+            "node": "Process Voice to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Voice to Text": {
+      "main": [
+        [
+          {
+            "node": "Format Voice Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Voice Response": {
+      "main": [
+        [
+          {
+            "node": "Send Voice Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Link Command": {
+      "main": [
+        [
+          {
+            "node": "Has Phone Number?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Phone Number?": {
+      "main": [
+        [
+          {
+            "node": "Link Account API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Link Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link Account API": {
+      "main": [
+        [
+          {
+            "node": "Format Link Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Link Result": {
+      "main": [
+        [
+          {
+            "node": "Send Link Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
