@@ -1,8 +1,13 @@
 ---
 - name: Setup Server for RuralCare Django Project
-  hosts: webservers
+  hosts: all
+  connection: local
   become: yes # Run tasks with sudo
   gather_facts: yes
+
+  vars:
+    project_dir: /home/ubuntu/RuralCareApp
+    python_env_dir: /home/ubuntu/RuralCareApp/venv
 
   tasks:
     - name: Update apt cache and upgrade system packages
