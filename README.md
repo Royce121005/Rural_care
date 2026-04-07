@@ -878,6 +878,7 @@ echo $AGORA_APP_CERTIFICATE
 ```
 
 **Issue: Database migration errors**
+
 ```bash
 # Reset migrations (development only)
 python manage.py migrate --fake-initial
