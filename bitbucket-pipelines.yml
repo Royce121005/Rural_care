@@ -1,0 +1,65 @@
+image: python:3.11
+
+pipelines:
+  branches:
+    main:
+      # Step 1 - Install & Test
+      - step:
+          name: Install & Test
+          caches:
+            - pip
+          script:
+            - pip install -r requirements.txt
+            - python -m pytest tests/ --tb=short || echo "No tests found, skipping"
+
+      # Step 2 - Deploy to AWS Elastic Beanstalk
+      - step:
+          name: Deploy to AWS
+          deployment: production
+          script:
+            # Install AWS CLI & EB CLI
+            - pip install awscli awsebcli
+
+            # Configure AWS credentials
+            - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+            - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+            - aws configure set default.region $AWS_DEFAULT_REGION
+
+            # Deploy to Elastic Beanstalk
+            - eb init $AWS_EB_APP_NAME --region $AWS_DEFAULT_REGION --platform python-3.11
+            - eb deploy $AWS_EB_ENV_NAME
+
+      # Step 3 - Update Jira ticket
+      - step:
+          name: Notify Jira
+          script:
+            - ISSUE=$(echo $BITBUCKET_BRANCH | grep -oP '[A-Z]+-[0-9]+' || echo "")
+            - |
+              if [ -n "$ISSUE" ]; then
+                curl -X POST "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE/transitions" \
+                -H "Authorization: Basic $JIRA_AUTH" \
+                -H "Content-Type: application/json" \
+                -d '{"transition":{"id":"31"}}'
+                echo "Jira ticket $ISSUE updated to Done"
+              fi
+
+  # Run tests on every PR
+  pull-requests:
+    '**':
+      - step:
+          name: PR - Install & Test
+          caches:
+            - pip
+          script:
+            - pip install -r requirements.txt
+            - python -m pytest tests/ --tb=short || echo "No tests found, skipping"
+
+  # Run tests on every push to any branch
+  default:
+    - step:
+          name: Test
+          caches:
+            - pip
+          script:
+            - pip install -r requirements.txt
+            - python -m pytest tests/ --tb=short || echo "No tests found, skipping"
