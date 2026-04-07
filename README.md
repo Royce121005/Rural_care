@@ -35,6 +35,7 @@
 
 ---
 
+   
 ## 🌟 Overview
 
 **RuralCare** is a comprehensive AI-powered healthcare platform specifically designed to address the unique challenges faced by rural communities in accessing quality healthcare. The platform combines cutting-edge technologies including **Artificial Intelligence**, **Blockchain**, and **Telemedicine** to create an accessible, secure, and intelligent healthcare ecosystem.
@@ -82,6 +83,7 @@ RuralCare addresses these challenges through:
 
 ### 📊 Feature Comparison
 
+
 | Feature | Traditional Rural Healthcare | RuralCare |
 |---------|----------------------------|-----------|
 | **Doctor Availability** | Limited to clinic hours | 24/7 AI assistance + scheduled consultations |
@@ -102,6 +104,7 @@ RuralCare addresses these challenges through:
 
 ![Cancer Detection](images/detection%20feature%20(cancer,%20tumor,%20etc).jpeg)
 
+
 - **Multi-Modal Analysis**: Supports X-ray, CT scan, MRI, mammography, and histopathology images
 - **YOLOv8 Integration**: State-of-the-art object detection for tumor identification
 - **OpenCV Processing**: Advanced image preprocessing and enhancement
@@ -111,6 +114,7 @@ RuralCare addresses these challenges through:
 ### 💊 Medicine Hub with AI Assistant
 
 ![Medicine Identifier](images/medicine%20identifier.jpeg)
+
 
 - **Image-Based Recognition**: Upload pill/medicine photos for instant identification
 - **Groq LLM Analysis**: Advanced AI analysis of medicine characteristics
@@ -124,6 +128,7 @@ RuralCare addresses these challenges through:
 ### 📍 Nearby Clinics & Emergency Services
 
 ![Nearby Clinics](images/nearby%20clinics.jpeg)
+
 
 - **GPS-Based Discovery**: Find nearest healthcare facilities
 - **Real-Time Availability**: Doctor availability and wait times
