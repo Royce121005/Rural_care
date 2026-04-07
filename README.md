@@ -120,6 +120,7 @@ RuralCare addresses these challenges through:
 - **Markdown Formatting**: Beautiful, formatted AI responses with lists, headings, and emphasis
 - **Safety Alerts**: Drug interaction warnings and allergy notifications
 - **Patient-Only Access**: Secure access restricted to verified patients
+- 
 
 ### 📍 Nearby Clinics & Emergency Services
 
@@ -178,6 +179,7 @@ RuralCare addresses these challenges through:
 - **Digital Prescriptions**: Blockchain-verified prescription generation with QR codes
 - **Follow-up Management**: Track and manage follow-up appointments
 - **Consultation Tokens**: Blockchain-based consultation verification
+- 
 
 ### 📅 Book Counseling Sessions
 
@@ -198,6 +200,7 @@ RuralCare addresses these challenges through:
 - **Drug Interaction Checks**: Automatic safety verification
 - **Side Effect Predictions**: Anticipate and manage treatment effects
 - **Progress Milestones**: Track treatment journey
+  
 
 ### 🔔 Real-Time Alerts & Notifications
 
