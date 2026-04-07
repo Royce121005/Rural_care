@@ -42,7 +42,7 @@
         dest: "{{ project_dir }}"
         version: main
         force: yes
-      become: no # git clone should be done as the app user (ubuntu, not root)
+      become_user: ubuntu
 
     - name: Create Python virtual environment
       command: python3 -m venv "{{ python_env_dir }}"
