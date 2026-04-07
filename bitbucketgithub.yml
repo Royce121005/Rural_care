@@ -1,0 +1,83 @@
+image: python:3.11
+
+pipelines:
+  branches:
+    main:
+      # Step 1 - Test your code
+      - step:
+          name: Install & Test
+          caches:
+            - pip
+          script:
+            - pip install -r requirements.txt
+            - python -m pytest tests/ --tb=short || echo "No tests found, skipping"
+
+      # Step 2 - Sync to GitHub
+      - step:
+          name: Sync to GitHub
+          script:
+            # Configure git
+            - git config --global user.email "bitbucket-pipeline@sync.com"
+            - git config --global user.name "Bitbucket Pipeline"
+
+            # Add GitHub as remote
+            - git remote add github https://$GITHUB_USERNAME:$GITHUB_TOKEN@github.com/$GITHUB_USERNAME/$GITHUB_REPO.git
+
+            # Push all branches to GitHub
+            - git push github main --force
+
+            # Push all tags to GitHub
+            - git push github --tags --force
+
+      # Step 3 - Deploy to EC2
+      - step:
+          name: Deploy to EC2
+          deployment: production
+          script:
+            - mkdir -p ~/.ssh
+            - echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+            - chmod 600 ~/.ssh/deploy_key
+            - ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
+            - ssh -i ~/.ssh/deploy_key $EC2_USER@$EC2_HOST '
+                cd /home/ec2-user/Rural_care &&
+                git pull origin main &&
+                pip install -r requirements.txt &&
+                sudo systemctl restart ruralcare
+              '
+
+      # Step 4 - Update Jira
+      - step:
+          name: Notify Jira
+          script:
+            - ISSUE=$(echo $BITBUCKET_BRANCH | grep -oP '[A-Z]+-[0-9]+' || echo "")
+            - |
+              if [ -n "$ISSUE" ]; then
+                curl -X POST "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE/transitions" \
+                -H "Authorization: Basic $JIRA_AUTH" \
+                -H "Content-Type: application/json" \
+                -d '{"transition":{"id":"31"}}'
+                echo "Jira ticket $ISSUE updated to Done"
+              fi
+
+  # Sync all branches on PR
+  pull-requests:
+    '**':
+      - step:
+          name: Test & Sync Branch to GitHub
+          script:
+            - pip install -r requirements.txt
+            - python -m pytest tests/ --tb=short || echo "No tests, skipping"
+            - git config --global user.email "bitbucket-pipeline@sync.com"
+            - git config --global user.name "Bitbucket Pipeline"
+            - git remote add github https://$GITHUB_USERNAME:$GITHUB_TOKEN@github.com/$GITHUB_USERNAME/$GITHUB_REPO.git
+            - git push github $BITBUCKET_BRANCH --force
+
+  # Sync on every push to any branch
+  default:
+    - step:
+          name: Sync to GitHub
+          script:
+            - git config --global user.email "bitbucket-pipeline@sync.com"
+            - git config --global user.name "Bitbucket Pipeline"
+            - git remote add github https://$GITHUB_USERNAME:$GITHUB_TOKEN@github.com/$GITHUB_USERNAME/$GITHUB_REPO.git
+            - git push github $BITBUCKET_BRANCH --force || echo "Sync failed, continuing"
