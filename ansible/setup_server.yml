@@ -24,7 +24,7 @@
           - python3-dev
           - git
           - nginx
-          - libgl1-mesa-glx # Required by OpenCV in your ML project
+          - libgl1 # Required by OpenCV
           - build-essential
         state: present
 
