@@ -1,0 +1,35 @@
+# =============================================================================
+# Rural Care - Terraform Variables Example
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values
+# IMPORTANT: Never commit terraform.tfvars to version control!
+# =============================================================================
+
+# AWS Configuration
+aws_region     = "us-west-2"
+aws_access_key = "AKIA..."           # Your AWS Access Key ID
+aws_secret_key = "your-secret-key"   # Your AWS Secret Access Key
+
+# EC2 Configuration
+instance_type  = "t3.small"      # t3.micro for free tier, t3.small recommended
+key_pair_name  = "your-key-pair" # Create in AWS Console -> EC2 -> Key Pairs
+
+# Django Configuration
+app_secret_key = "your-django-secret-key-generate-with-django-get_random_secret_key"
+
+# Git Repository
+git_repo_url = "https://github.com/ashleyalmeida07/Rural_care.git"
+git_branch   = "main"
+
+# Optional: External Database URL (e.g., Supabase, Render, or any PostgreSQL)
+# database_url = "postgres://user:password@host:5432/dbname"
+
+# Optional: Supabase Configuration
+# supabase_url = ""
+# supabase_key = ""
+
+# Optional: AI API
+# groq_api_key = ""
+
+# Optional: Blockchain
+# blockchain_enabled = "False"
