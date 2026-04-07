@@ -350,67 +350,120 @@ RuralCare addresses these challenges through:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 📁 Project Structure
-
-```
 Hospital/
-├── 📁 authentication/          # User auth, QR codes, voice assistant
-│   ├── models.py              # User, Patient, Doctor, QR models
-│   ├── views.py               # Auth views, dashboards
-│   ├── qr_views.py            # QR code generation & scanning
-│   ├── voice_assistant.py     # Groq-powered voice AI
-│   └── supabase_client.py     # Supabase integration
 │
-├── 📁 blockchain/              # Ethereum smart contracts
-│   ├── blockchain_service.py  # Web3 integration
-│   ├── contracts/             # Solidity smart contracts
-│   └── contract_abi.json      # Contract interfaces
+├── 📁 config/                     # Project configuration
+│   ├── settings.py
+│   ├── urls.py
+│   ├── asgi.py / wsgi.py
+│   └── celery.py (optional async tasks)
 │
-├── 📁 cancer_detection/        # AI cancer analysis
-│   ├── views.py               # Upload & analysis views
-│   ├── opencv_analyzer.py     # Image processing
-│   ├── groq_analyzer.py       # LLM analysis
-│   ├── treatment_planner.py   # AI treatment planning
-│   ├── evidence_*.py          # Evidence traceability
-│   └── histopathology_*.py    # Pathology analysis
+├── 📁 apps/                       # All Django apps (modular structure)
 │
-├── 📁 clinical_decision_support/  # Doctor tools
-│   ├── ai_services.py         # AI confidence & XAI
-│   ├── toxicity_service.py    # Drug toxicity prediction
-│   └── views.py               # Tumor board, monitoring
+│   ├── 📁 authentication/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── serializers.py
+│   │   ├── services/              # Business logic layer
+│   │   │   ├── auth_service.py
+│   │   │   ├── qr_service.py
+│   │   │   └── voice_service.py
+│   │   ├── repositories/          # DB abstraction (optional advanced)
+│   │   └── urls.py
 │
-├── 📁 medicine_identifier/     # Medicine recognition
-│   ├── image_analyzer.py      # Visual recognition
-│   ├── groq_medicine_service.py # LLM identification
-│   └── views.py               # Patient medicine lookup
+│   ├── 📁 patient_portal/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── services/
+│   │   │   ├── consultation_service.py
+│   │   │   ├── prescription_service.py
+│   │   │   ├── gamification_service.py
+│   │   │   └── offline_sync_service.py
+│   │   ├── urls.py
 │
-├── 📁 medical_chatbot/         # AI Medical Assistant
-│   ├── chatbot_service.py     # Groq LLM chatbot service
-│   ├── context_builder.py     # Medical context aggregation
-│   ├── models.py              # Chat sessions & messages
-│   └── views.py               # Chat API endpoints
+│   ├── 📁 clinical_decision_support/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── services/
+│   │   │   ├── ai_decision_service.py
+│   │   │   ├── toxicity_service.py
+│   │   └── urls.py
 │
-├── 📁 patient_portal/          # Patient features
-│   ├── views.py               # Symptoms, alerts, treatments
-│   ├── consultation_views.py  # Booking & consultations
-│   ├── call_views.py          # Video/audio calls
-│   ├── prescription_*.py      # Digital prescriptions
-│   ├── gamification_*.py      # Health badges & rewards
-│   └── offline_sync_views.py  # Offline support
+│   ├── 📁 cancer_detection/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── services/
+│   │   │   ├── image_processing.py
+│   │   │   ├── yolo_service.py
+│   │   │   ├── treatment_planner.py
+│   │   │   └── evidence_service.py
+│   │   ├── utils/
+│   │   │   └── histopathology.py
+│   │   └── urls.py
 │
-├── 📁 Insurance_SIP/           # Insurance module
-│   ├── views.py               # Schemes & policies
-│   └── document_validator.py  # KYC validation
+│   ├── 📁 medicine_identifier/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── services/
+│   │   │   ├── image_service.py
+│   │   │   ├── llm_service.py
+│   │   └── urls.py
 │
-├── 📁 templates/               # HTML templates
-├── 📁 static/                  # CSS, JS, images
-├── 📁 media/                   # User uploads
-├── manage.py                   # Django management
-├── requirements.txt            # Dependencies
-└── yolov8n.pt                 # YOLOv8 model weights
-```
-
----
+│   ├── 📁 medical_chatbot/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── services/
+│   │   │   ├── chatbot_service.py
+│   │   │   ├── context_builder.py
+│   │   └── urls.py
+│
+│   ├── 📁 insurance/
+│   │   ├── models.py
+│   │   ├── views.py
+│   │   ├── services/
+│   │   │   ├── policy_service.py
+│   │   │   ├── kyc_service.py
+│   │   └── urls.py
+│
+│   ├── 📁 blockchain/
+│   │   ├── services/
+│   │   │   ├── blockchain_service.py
+│   │   │   ├── smart_contract_service.py
+│   │   ├── contracts/
+│   │   └── contract_abi.json
+│
+│
+├── 📁 core/                      # Shared logic (VERY IMPORTANT)
+│   ├── utils/
+│   │   ├── helpers.py
+│   │   ├── validators.py
+│   │   └── constants.py
+│   ├── services/
+│   │   ├── supabase_service.py
+│   │   ├── storage_service.py
+│   │   └── notification_service.py
+│   └── middleware/
+│
+├── 📁 infrastructure/            # External integrations
+│   ├── ai/
+│   │   ├── groq_client.py
+│   │   ├── model_loader.py
+│   ├── blockchain/
+│   │   └── web3_client.py
+│   ├── storage/
+│   │   └── supabase_client.py
+│
+├── 📁 templates/
+├── 📁 static/
+├── 📁 media/
+│
+├── 📁 tests/                     # Testing layer
+│   ├── unit/
+│   ├── integration/
+│
+├── manage.py
+├── requirements.txt
+└── README.md
 
 ## 🛠️ Tech Stack
 

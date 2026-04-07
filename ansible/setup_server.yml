@@ -1,0 +1,67 @@
+---
+- name: Setup Server for RuralCare Django Project
+  hosts: all
+  connection: local
+  become: yes # Run tasks with sudo
+  gather_facts: yes
+
+  vars:
+    project_dir: /home/ubuntu/RuralCareApp
+    python_env_dir: /home/ubuntu/RuralCareApp/venv
+
+  tasks:
+    - name: Update apt cache and upgrade system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Ensure required system packages are installed
+      apt:
+        name:
+          - python3-pip
+          - python3-venv
+          - python3-dev
+          - git
+          - nginx
+          - libgl1 # Required by OpenCV
+          - build-essential
+        state: present
+
+    - name: Create project directory and set ownership
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Clone the RuralCare repository
+      git:
+        repo: 'https://github.com/ashleyalmeida07/Rural_care.git'
+        dest: "{{ project_dir }}"
+        version: main
+        force: yes
+      become_user: ubuntu
+
+    - name: Create Python virtual environment
+      command: python3 -m venv "{{ python_env_dir }}"
+      args:
+        creates: "{{ python_env_dir }}/bin/python"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ project_dir }}/requirements.txt"
+        virtualenv: "{{ python_env_dir }}"
+
+    - name: Run Django database migrations
+      django_manage:
+        command: migrate
+        app_path: "{{ project_dir }}"
+        virtualenv: "{{ python_env_dir }}"
+      
+    - name: Collect static files
+      django_manage:
+        command: collectstatic --noinput
+        app_path: "{{ project_dir }}"
+        virtualenv: "{{ python_env_dir }}"
